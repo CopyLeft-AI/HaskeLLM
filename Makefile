@@ -153,3 +153,5 @@ Setup: Setup.*hs dist-newstyle/cache/config dist-newstyle/cache/plan.json $(LIBT
 	$(GHC) -O2 -Wall --make Setup -package Cabal
 	touch $@
 
+the-verdict.txt:
+	curl https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt -o the-verdict.txt
