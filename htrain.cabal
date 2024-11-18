@@ -32,7 +32,8 @@ library
         -Wredundant-constraints -Wall-missed-specialisations
 
     build-depends:
-        base <5.0
+        base <5.0,
+        split
 
 executable trainLLM
     main-is:            trainLLM.hs
@@ -49,6 +50,8 @@ executable trainLLM
 
     build-depends:
         base <5.0,
+        split,
+        Unique,
         optparse-applicative -any
 
 test-suite test-htrain
