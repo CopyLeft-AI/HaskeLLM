@@ -25,3 +25,5 @@ Setup
 stack.yaml.lock
 cabal.project.local*
 dist-newstyle/
+the-verdict.txt
+gpt2-vocab.json

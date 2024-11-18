@@ -44,6 +44,8 @@ LIBFILES=$(shell find ${LIBDIR} -name '*.hs')
 LIBBUILD=$(shell find ${LIBDIR} -name '*.hi')
 LIBTARGET=${BUILDROOT}/build/${LIBDIR}/Htrain.o
 
+FILETARGETS=the-verdict.txt gpt2-vocab.json
+
 EXECBUILDDIRS=$(HTRAINDIR)
 EXECTARGETS=$(HTRAINBIN)  # $(TESTSUITE) $(BROKENTESTSUITE) $(STATTESTSUITE)
 TARGETS=$(EXECTARGETS) $(LIBTARGET)
@@ -61,7 +63,7 @@ TARGETS=$(EXECTARGETS) $(LIBTARGET)
 MAKEFLAGS += --no-builtin-rules
 
 # Build binaries.
-build: $(TARGETS)
+build: $(TARGETS) $(FILETARGETS)
 
 # Install.
 install: build
@@ -70,7 +72,6 @@ install: build
 # Cleanup from using the rules in this file.
 clean:
 	rm -f Setup
-#	rm -f tests/*.gcode
 	rm -f $(TARGETS)
 	rm -f $(LIBBUILD)
 	rm -rf ${EXECBUILDDIRS}
@@ -84,6 +85,7 @@ distclean: clean Setup
 	rm -rf dist-newstyle
 	rm -f `find ./ -name "*~"`
 	rm -f `find ./ -name "\#*\#"`
+	rm -rf ${FILETARGETS}
 
 # Destroy the current user's cabal/ghc environment.
 nukeclean: distclean
@@ -154,4 +156,7 @@ Setup: Setup.*hs dist-newstyle/cache/config dist-newstyle/cache/plan.json $(LIBT
 	touch $@
 
 the-verdict.txt:
-	curl https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt -o the-verdict.txt
+	curl https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt -o $@
+
+gpt2-vocab.json:
+	curl https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json -o $@
