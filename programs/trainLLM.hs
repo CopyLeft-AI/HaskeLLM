@@ -19,7 +19,7 @@
 
 {-# LANGUAGE FlexibleInstances #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, putStrLn, readFile, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, putStrLn, readFile, return, show, take, zip)
 
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
@@ -29,17 +29,7 @@ import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
 
-import Data.Tuple (swap)
-
 import Options.Applicative (Parser, ReadM, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
-
-data TrainRootOpts =
-  TrainRootOpts
-    {
-      inputFileOpt :: Maybe String
-    , exampleOpt :: Example
-    , verboseFlag :: Maybe Bool
-    }
 
 data Example =
   Example (Int, Int)
@@ -67,6 +57,14 @@ exampleReader = do
       | not (isHexDigit a) = error $ "unable to read chapter number.\n" <> exampleDescription
     findExample _ = error $ "complete failure to parse chapter and listing numbers.\n" <> exampleDescription
   return $ Example $ findExample v
+
+data TrainRootOpts =
+  TrainRootOpts
+    {
+      inputFileOpt :: Maybe String
+    , exampleOpt :: Example
+    , verboseFlag :: Maybe Bool
+    }
 
 trainOpts :: Parser TrainRootOpts
 trainOpts =
@@ -98,8 +96,8 @@ trainOpts =
 example_2_1 :: [Char] -> [Char]
 example_2_1 text = "Total number of character: " <> show (length text) <> "\n" <> take 99 text
 
-example_2_2 :: [Char] -> [([Char], Int)]
-example_2_2 text = take 51 $ vocabOfText text
+example_2_2 :: [Char] -> Vocabulary
+example_2_2 text = Vocabulary $ take 51 $ (\(Vocabulary a) -> a) $ vocabOfText text
 
 -- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
 -- This is the encoding one.
@@ -116,42 +114,53 @@ example_2_3_2 text tokens = stringFromTokens vocab tokens
     vocab = vocabOfText text
 
 -- | Example 2.4 has several sub examples. This one prints the last 5 tokens in our extended vocabulary.
-example_2_4_1 :: [Char] -> [([Char], Int)]
-example_2_4_1 text = drop (length vocab - 3) $ extendedVocab vocab
+example_2_4_1 :: [Char] -> Vocabulary
+example_2_4_1 text = Vocabulary $ drop (vocabLength vocab - 3) $ rawExtendedVocab vocab
   where
     vocab = vocabOfText text
-    extendedVocab v = v ++ [("<|endoftext|>", length v), ("<|unk|>", length v + 1)]
+    vocabLength (Vocabulary v) = length v
+    rawExtendedVocab (Vocabulary v) = v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
 -- Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
 example_2_4_2 :: [Char] -> [Char] -> [Int]
-example_2_4_2 text string = getTokensFromString (extendedVocab vocab) (Just $ length (extendedVocab vocab) - 1) string
+example_2_4_2 text string = getTokensFromString (extendedVocab vocab) (Just $ vocabLength (extendedVocab vocab) - 1) string
   where
     vocab = vocabOfText text
-    extendedVocab v = v ++ [("<|endoftext|>", length v), ("<|unk|>", length v + 1)]
+    vocabLength (Vocabulary v) = length v
+    extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
 -- Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
 example_2_4_3 :: [Char] -> [Int] -> [Char]
 example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
   where
     vocab = vocabOfText text
-    extendedVocab v = v ++ [("<|endoftext|>", length v), ("<|unk|>", length v + 1)]
+    extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
+
+data Vocabulary = Vocabulary [TokenMap]
+  deriving Show
+
+data TokenMap =
+  TokenMap { _token :: [Char]
+           , _value :: Int
+           }
+  deriving Show
 
 -- A typeclass for tokenization.
 class Tokenable s where
   -- | Establish a vocabulary from a set of strings.
-  vocabOfText :: s -> [([Char], Int)]
+  vocabOfText :: s -> Vocabulary
   -- Use a vocabulary to reconstruct tokens into a string.
-  stringFromTokens :: [([Char], Int)] -> [Int] -> s
+  stringFromTokens :: Vocabulary -> [Int] -> s
   -- Use a vocabulary to tokenize an input.
-  tokensFromString :: [([Char], Int)] -> s -> [Int] 
+  tokensFromString :: Vocabulary -> s -> [Int] 
 
 instance Tokenable [Char] where
   vocabOfText s = vocabFromText s
   stringFromTokens v t = getStringFromTokens v t
   tokensFromString v s = getTokensFromString v Nothing s
 
-vocabFromText :: [Char] -> [([Char], Int)]
-vocabFromText input = zip vocab [0,1..]
+vocabFromText :: [Char] -> Vocabulary
+vocabFromText input = Vocabulary $ (\(t, v) -> TokenMap t v) <$> zip vocab [0,1..]
   where
     vocab = sortUniq $ splitString input
 
@@ -163,8 +172,8 @@ splitString input = concat $ split (dropBlanks $ onSublist "--") <$> separatePun
     words = splitOneOf " \n" input
 
 -- | Use a list of tokens to tokenize a string. optionally accepts an unknown token.
-getTokensFromString :: [([Char], Int)] -> Maybe Int -> [Char] -> [Int]
-getTokensFromString vocab unk string = findTokenOfString <$> splitString string
+getTokensFromString :: Vocabulary -> Maybe Int -> [Char] -> [Int]
+getTokensFromString (Vocabulary rawVocab) unk string = findTokenOfString <$> splitString string
   where
     findTokenOfString :: [Char] -> Int
     findTokenOfString s = case lookup s vocab of
@@ -172,9 +181,11 @@ getTokensFromString vocab unk string = findTokenOfString <$> splitString string
                                Nothing -> case unk of
                                             Nothing -> error $ "cannot find a token for \"" <> s <> "\"\n"
                                             Just t -> t
+    vocab = (\(TokenMap t v) -> (t, v)) <$> rawVocab
 
-getStringFromTokens :: [([Char], Int)] -> [Int] -> [Char]
-getStringFromTokens vocab tokens = maybeIntersperse " " $ findStringOfToken <$> tokens
+
+getStringFromTokens :: Vocabulary -> [Int] -> [Char]
+getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse " " $ findStringOfToken <$> tokens
   where
     maybeIntersperse :: [Char] -> [[Char]] -> [Char]
     maybeIntersperse _ [] = []
@@ -187,7 +198,8 @@ getStringFromTokens vocab tokens = maybeIntersperse " " $ findStringOfToken <$> 
     findStringOfToken t = case lookup t bacov of
                             Just s -> s
                             Nothing -> error $ "cannot find a string for token" <> (show t) <> "\n"
-    bacov = swap <$> vocab
+    -- the vocabulary backwards: a mapping from value to token.
+    bacov = (\(TokenMap t v) -> (v, t)) <$> rawVocab
 
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
