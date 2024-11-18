@@ -93,49 +93,6 @@ trainOpts =
     )
   )
 
-example_2_1 :: [Char] -> [Char]
-example_2_1 text = "Total number of character: " <> show (length text) <> "\n" <> take 99 text
-
-example_2_2 :: [Char] -> Vocabulary
-example_2_2 text = Vocabulary $ take 51 $ (\(Vocabulary a) -> a) $ vocabOfText text
-
--- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
--- This is the encoding one.
-example_2_3_1 :: [Char] -> [Char] -> [Int]
-example_2_3_1 text string = tokensFromString vocab string
-  where
-    vocab = vocabOfText text
-
--- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
--- This is the decoding one.
-example_2_3_2 :: [Char] -> [Int] -> [Char]
-example_2_3_2 text tokens = stringFromTokens vocab tokens
-  where
-    vocab = vocabOfText text
-
--- | Example 2.4 has several sub examples. This one prints the last 5 tokens in our extended vocabulary.
-example_2_4_1 :: [Char] -> Vocabulary
-example_2_4_1 text = Vocabulary $ drop (vocabLength vocab - 3) $ rawExtendedVocab vocab
-  where
-    vocab = vocabOfText text
-    vocabLength (Vocabulary v) = length v
-    rawExtendedVocab (Vocabulary v) = v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
-
--- Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
-example_2_4_2 :: [Char] -> [Char] -> [Int]
-example_2_4_2 text string = getTokensFromString (extendedVocab vocab) (Just $ vocabLength (extendedVocab vocab) - 1) string
-  where
-    vocab = vocabOfText text
-    vocabLength (Vocabulary v) = length v
-    extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
-
--- Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
-example_2_4_3 :: [Char] -> [Int] -> [Char]
-example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
-  where
-    vocab = vocabOfText text
-    extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
-
 data Vocabulary = Vocabulary [TokenMap]
   deriving Show
 
@@ -200,6 +157,49 @@ getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse " " $ findSt
                             Nothing -> error $ "cannot find a string for token" <> (show t) <> "\n"
     -- the vocabulary backwards: a mapping from value to token.
     bacov = (\(TokenMap t v) -> (v, t)) <$> rawVocab
+
+example_2_1 :: [Char] -> [Char]
+example_2_1 text = "Total number of character: " <> show (length text) <> "\n" <> take 99 text
+
+example_2_2 :: [Char] -> Vocabulary
+example_2_2 text = Vocabulary $ take 51 $ (\(Vocabulary a) -> a) $ vocabOfText text
+
+-- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
+-- This is the encoding one.
+example_2_3_1 :: [Char] -> [Char] -> [Int]
+example_2_3_1 text string = tokensFromString vocab string
+  where
+    vocab = vocabOfText text
+
+-- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
+-- This is the decoding one.
+example_2_3_2 :: [Char] -> [Int] -> [Char]
+example_2_3_2 text tokens = stringFromTokens vocab tokens
+  where
+    vocab = vocabOfText text
+
+-- | Example 2.4 has several sub examples. This one prints the last 5 tokens in our extended vocabulary.
+example_2_4_1 :: [Char] -> Vocabulary
+example_2_4_1 text = Vocabulary $ drop (vocabLength vocab - 3) $ rawExtendedVocab vocab
+  where
+    vocab = vocabOfText text
+    vocabLength (Vocabulary v) = length v
+    rawExtendedVocab (Vocabulary v) = v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
+
+-- Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
+example_2_4_2 :: [Char] -> [Char] -> [Int]
+example_2_4_2 text string = getTokensFromString (extendedVocab vocab) (Just $ vocabLength (extendedVocab vocab) - 1) string
+  where
+    vocab = vocabOfText text
+    vocabLength (Vocabulary v) = length v
+    extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
+
+-- Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
+example_2_4_3 :: [Char] -> [Int] -> [Char]
+example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
+  where
+    vocab = vocabOfText text
+    extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
