@@ -21,6 +21,10 @@
 
 import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, putStrLn, readFile, return, show, take, zip)
 
+import Data.Aeson (Value(Array), FromJSON(parseJSON), ToJSON(toJSON), (.:), (.=), decode, encode, withObject, object)
+
+import Data.Aeson.Key (fromString)
+
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
 import Data.List ((++), drop, elem, foldr1, head)
@@ -28,6 +32,8 @@ import Data.List ((++), drop, elem, foldr1, head)
 import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
+
+import Data.Vector (fromList)
 
 import Options.Applicative (Parser, ReadM, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
 
@@ -96,11 +102,17 @@ trainOpts =
 data Vocabulary = Vocabulary [TokenMap]
   deriving Show
 
+instance ToJSON Vocabulary where
+  toJSON (Vocabulary tokenMaps) = Array $ fromList $ toJSON <$> tokenMaps
+
 data TokenMap =
   TokenMap { _token :: [Char]
            , _value :: Int
            }
   deriving Show
+
+instance ToJSON TokenMap where
+  toJSON (TokenMap token value) = object [(fromString token) .= value]
 
 -- A typeclass for tokenization.
 class Tokenable s where
@@ -201,6 +213,12 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     vocab = vocabOfText text
     extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
+example_2_5_1 :: [Char] -> [Char] -> [Int]
+example_2_5_1 text string = error $ show $ encode $ rawExtendedVocab vocab
+  where
+    vocab = vocabOfText text
+    rawExtendedVocab (Vocabulary v) = v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
+
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
 run rawArgs =
@@ -234,10 +252,14 @@ run rawArgs =
                  <> (show example_2_4_String) <> "\n"
                  <> (show $ example_2_4_2 input example_2_4_String) <> "\n"
                  <> (show $ example_2_4_3 input $ example_2_4_2 input example_2_4_String) <> "\n"
+      Example (2,5) -> do
+        input <- readInput
+        putStrLn $ (show $ example_2_5_1 input example_2_5_String) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
+    example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
 
 -- | The entry point. Use the option parser then run the trainer.
 main :: IO ()

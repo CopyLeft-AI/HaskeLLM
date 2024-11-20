@@ -50,9 +50,12 @@ executable trainLLM
 
     build-depends:
         base <5.0,
+        aeson,
+        optparse-applicative -any,
         split,
         Unique,
-        optparse-applicative -any
+        vector
+
 
 test-suite test-htrain
     type:               exitcode-stdio-1.0
