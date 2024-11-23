@@ -18,12 +18,17 @@
  -}
 
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, putStrLn, readFile, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, pure, putStrLn, readFile, return, show, take, zip)
 
-import Data.Aeson (Value(Array), FromJSON(parseJSON), ToJSON(toJSON), (.:), (.=), decode, encode, withObject, object)
+import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), (.=), decode, withObject, object)
 
-import Data.Aeson.Key (fromString)
+import Data.Aeson.Key (Key, fromString, toString)
+
+import Data.Aeson.KeyMap (toList)
+
+import Data.ByteString.Lazy (ByteString)
 
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
@@ -32,6 +37,8 @@ import Data.List ((++), drop, elem, foldr1, head)
 import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
+
+import Data.Scientific (toBoundedInteger)
 
 import Data.Vector (fromList)
 
@@ -45,6 +52,7 @@ exampleReader :: ReadM Example
 exampleReader = do
   v <- str
   let
+    exampleDescription :: [Char]
     exampleDescription = "An example must consist of one character for the chapter (0-9A-F), and two characters for the listing number within the chapter (00-99)."
     findExample :: [Char] -> (Int, Int)
     findExample [] = error $ "empty chapter.\n" <> exampleDescription
@@ -105,14 +113,40 @@ data Vocabulary = Vocabulary [TokenMap]
 instance ToJSON Vocabulary where
   toJSON (Vocabulary tokenMaps) = Array $ fromList $ toJSON <$> tokenMaps
 
+instance FromJSON Vocabulary where
+  parseJSON = withObject "Vocabulary" (\v -> pure $ findVocabulary $ toList v)
+    where
+      findVocabulary :: [(Key, Value)] -> Vocabulary
+      findVocabulary maybeTokenMaps = Vocabulary $ findTokenMap <$> maybeTokenMaps
+      findTokenMap :: (Key, Value) -> TokenMap
+      findTokenMap (k,v) = case (k,v) of
+                             (a, Number b) ->  case toBoundedInteger b of
+                                                 Just c -> TokenMap (toString a) (c)
+                                                 Nothing -> error $ "value out of bounds: " <> show b
+                             (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
+
 data TokenMap =
-  TokenMap { _token :: [Char]
-           , _value :: Int
+  TokenMap { tm_token :: [Char]
+           , tm_value :: Int
            }
   deriving Show
 
 instance ToJSON TokenMap where
   toJSON (TokenMap token value) = object [(fromString token) .= value]
+
+instance FromJSON TokenMap where
+  parseJSON = withObject "TokenMap" (\v -> pure $ onlyOne $ findTokenMap <$> toList v)
+    where
+      findTokenMap :: (Key, Value) -> TokenMap
+      findTokenMap (k,v) = case (k,v) of
+                             (a, Number b) ->  case toBoundedInteger b of
+                                                 Just c -> TokenMap (toString a) (c)
+                                                 Nothing -> error $ "value out of bounds: " <> show b
+                             (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
+      onlyOne :: (Show a) => [a] -> a
+      onlyOne [] = error $ "no item!\n"
+      onlyOne [a] = a
+      onlyOne xs = error $ "too many items." <> show xs <> "\n"
 
 -- A typeclass for tokenization.
 class Tokenable s where
@@ -161,7 +195,7 @@ getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse " " $ findSt
     maybeIntersperse x xs = foldr1 maybeIntersperse' xs
       where
         maybeIntersperse' :: [Char] -> [Char] -> [Char]
-        maybeIntersperse' a b = case (head b) `elem` ",.?!\"()'" of
+        maybeIntersperse' a b = case (head b) `elem` (",.?!\"()'" :: [Char]) of
                                   False -> a ++ x ++ b
                                   True -> a ++ b
     findStringOfToken t = case lookup t bacov of
@@ -213,11 +247,8 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     vocab = vocabOfText text
     extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
-example_2_5_1 :: [Char] -> [Char] -> [Int]
-example_2_5_1 text string = error $ show $ encode $ rawExtendedVocab vocab
-  where
-    vocab = vocabOfText text
-    rawExtendedVocab (Vocabulary v) = v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
+example_2_5_1 :: [Char] -> ByteString -> [Int]
+example_2_5_1 text string = error $ show (decode string :: Maybe Vocabulary) -- encode $ head $ rawExtendedVocab vocab
 
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
@@ -254,12 +285,15 @@ run rawArgs =
                  <> (show $ example_2_4_3 input $ example_2_4_2 input example_2_4_String) <> "\n"
       Example (2,5) -> do
         input <- readInput
-        putStrLn $ (show $ example_2_5_1 input example_2_5_String) <> "\n"
+        putStrLn $ (show (example_2_5_1 input example_2_5_JSON :: [Int])) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
+    example_2_3_String, example_2_4_String{-, example_2_5_String-} :: [Char]
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
-    example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
+--    example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
+    example_2_5_JSON :: ByteString
+    example_2_5_JSON = "{\"!\": 0, \"\\\"\": 1}"
 
 -- | The entry point. Use the option parser then run the trainer.
 main :: IO ()

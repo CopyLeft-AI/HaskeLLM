@@ -51,9 +51,12 @@ executable trainLLM
     build-depends:
         base <5.0,
         aeson,
+        bytestring,
         optparse-applicative -any,
+        scientific,
         split,
         Unique,
+        unordered-containers,
         vector
 
 
