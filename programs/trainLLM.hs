@@ -20,17 +20,19 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, pure, putStrLn, readFile, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import Prelude as PL (readFile)
 
-import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), (.=), decode, withObject, object)
+import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), (.=), decodeStrict, withObject, object)
 
-import Data.Aeson.Key (Key, fromString, toString)
+import Data.Aeson.Key (Key, toString)
+
+import Data.Aeson.Key as DAK (fromString)
 
 import Data.Aeson.KeyMap (toList)
 
-import Data.ByteString.Lazy as BS (ByteString, readFile)
+import Data.ByteString.UTF8 as BSU (ByteString, fromString)
 
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
@@ -143,7 +145,7 @@ data TokenMap =
   deriving Show
 
 instance ToJSON TokenMap where
-  toJSON (TokenMap token value) = object [(fromString token) .= value]
+  toJSON (TokenMap token value) = object [(DAK.fromString token) .= value]
 
 instance FromJSON TokenMap where
   parseJSON = withObject "TokenMap" (\v -> pure $ onlyOne $ findTokenMap <$> toList v)
@@ -258,9 +260,13 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     vocab = vocabOfText text
     extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
-example_2_5_1 :: [Char] -> ByteString -> [Int]
-example_2_5_1 text dictionary = error $ show (decode dictionary :: Maybe Vocabulary) -- encode $ head $ rawExtendedVocab vocab
-
+example_2_5_1 :: [Char] -> BSU.ByteString -> [Int]
+example_2_5_1 text dictionaryFile = tokensFromString vocab text
+  where
+    vocab :: Vocabulary
+    vocab = case decodeStrict dictionaryFile of
+              Just v -> v
+              Nothing -> error "no vocabulary?"
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
 run rawArgs =
@@ -271,12 +277,12 @@ run rawArgs =
                  Nothing -> getContents
                  Just inFile -> PL.readFile inFile
       return input
-    readDictionary :: IO ByteString
+    readDictionary :: IO BSU.ByteString
     readDictionary = do
       input <- case dictionaryOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own dictionary, in JSON format."
-                 Just inFile -> BS.readFile inFile
-      return input
+                 Just inFile -> PL.readFile inFile
+      return $ BSU.fromString input
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
@@ -301,17 +307,14 @@ run rawArgs =
                  <> (show $ example_2_4_2 input example_2_4_String) <> "\n"
                  <> (show $ example_2_4_3 input $ example_2_4_2 input example_2_4_String) <> "\n"
       Example (2,5) -> do
-        input <- readInput
         dictionary <- readDictionary
-        putStrLn $ (show (example_2_5_1 input dictionary :: [Int])) <> "\n"
+        putStrLn $ (show (example_2_5_1 example_2_5_String dictionary :: [Int])) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
-    example_2_3_String, example_2_4_String{-, example_2_5_String-} :: [Char]
+    example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
---    example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
-    example_2_5_JSON :: ByteString
-    example_2_5_JSON = "{\"!\": 0, \"\\\"\": 1}"
+    example_2_5_String = "Hello, do you like" --  tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
 
 -- | The entry point. Use the option parser then run the trainer.
 main :: IO ()

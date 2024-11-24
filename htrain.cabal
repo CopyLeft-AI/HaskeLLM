@@ -57,6 +57,7 @@ executable trainLLM
         split,
         Unique,
         unordered-containers,
+        utf8-string,
         vector
 
 
