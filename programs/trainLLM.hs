@@ -127,20 +127,15 @@ trainOpts =
 data Vocabulary = Vocabulary [TokenMap]
   deriving Show
 
+findVocabulary :: [(Key, Value)] -> Vocabulary
+findVocabulary maybeTokenMaps = Vocabulary $ findTokenMap <$> maybeTokenMaps
+
 instance ToJSON Vocabulary where
   toJSON (Vocabulary tokenMaps) = Array $ fromList $ toJSON <$> tokenMaps
 
 instance FromJSON Vocabulary where
   parseJSON = withObject "Vocabulary" (\v -> pure $ findVocabulary $ toList v)
     where
-      findVocabulary :: [(Key, Value)] -> Vocabulary
-      findVocabulary maybeTokenMaps = Vocabulary $ findTokenMap <$> maybeTokenMaps
-      findTokenMap :: (Key, Value) -> TokenMap
-      findTokenMap (k,v) = case (k,v) of
-                             (a, Number b) ->  case toBoundedInteger b of
-                                                 Just c -> TokenMap (encodeUtf8 $ toText a) (c)
-                                                 Nothing -> error $ "value out of bounds: " <> show b
-                             (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
 
 data TokenMap =
   TokenMap { tm_token :: ByteString
@@ -148,18 +143,19 @@ data TokenMap =
            }
   deriving Show
 
+findTokenMap :: (Key, Value) -> TokenMap
+findTokenMap (k,v) = case (k,v) of
+                       (a, Number b) ->  case toBoundedInteger b of
+                                           Just c -> TokenMap (encodeUtf8 $ toText a) (c)
+                                           Nothing -> error $ "value out of bounds: " <> show b
+                       (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
+
 instance ToJSON TokenMap where
   toJSON (TokenMap token value) = object [DAK.fromText (decodeUtf8 token) .= value]
 
 instance FromJSON TokenMap where
   parseJSON = withObject "TokenMap" (\v -> pure $ onlyOne $ findTokenMap <$> toList v)
     where
-      findTokenMap :: (Key, Value) -> TokenMap
-      findTokenMap (k,v) = case (k,v) of
-                             (a, Number b) ->  case toBoundedInteger b of
-                                                 Just c -> TokenMap (encodeUtf8 $ toText a) (c)
-                                                 Nothing -> error $ "value out of bounds: " <> show b
-                             (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
       onlyOne :: (Show a) => [a] -> a
       onlyOne [] = error $ "no item!\n"
       onlyOne [a] = a
