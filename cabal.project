@@ -2,3 +2,8 @@ packages: .
 tests: True
 documentation: True
 
+
+source-repository-package
+   type:     git
+   location: https://github.com/julialongtin/minbpe-hs.git
+   tag: 9509cc438040cbed094f03c616f58ea1cb593b57

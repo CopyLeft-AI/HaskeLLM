@@ -22,17 +22,19 @@
 
 import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, lookup, not, otherwise, pure, putStrLn, return, show, take, zip)
 
-import Prelude as PL (readFile)
+import qualified Prelude as PL (readFile)
 
 import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), (.=), decodeStrict, withObject, object)
 
-import Data.Aeson.Key (Key, toString)
+import Data.Aeson.Key (Key, toText)
 
-import Data.Aeson.Key as DAK (fromString)
+import qualified Data.Aeson.Key as DAK (fromText)
 
 import Data.Aeson.KeyMap (toList)
 
-import Data.ByteString.UTF8 as BSU (ByteString, fromString)
+import Data.ByteString (ByteString)
+
+import qualified Data.ByteString.UTF8 as BSU (toString, fromString)
 
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
@@ -43,6 +45,8 @@ import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 import Data.List.Unique (sortUniq)
 
 import Data.Scientific (toBoundedInteger)
+
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 import Data.Vector (fromList)
 
@@ -134,18 +138,18 @@ instance FromJSON Vocabulary where
       findTokenMap :: (Key, Value) -> TokenMap
       findTokenMap (k,v) = case (k,v) of
                              (a, Number b) ->  case toBoundedInteger b of
-                                                 Just c -> TokenMap (toString a) (c)
+                                                 Just c -> TokenMap (encodeUtf8 $ toText a) (c)
                                                  Nothing -> error $ "value out of bounds: " <> show b
                              (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
 
 data TokenMap =
-  TokenMap { tm_token :: [Char]
+  TokenMap { tm_token :: ByteString
            , tm_value :: Int
            }
   deriving Show
 
 instance ToJSON TokenMap where
-  toJSON (TokenMap token value) = object [(DAK.fromString token) .= value]
+  toJSON (TokenMap token value) = object [DAK.fromText (decodeUtf8 token) .= value]
 
 instance FromJSON TokenMap where
   parseJSON = withObject "TokenMap" (\v -> pure $ onlyOne $ findTokenMap <$> toList v)
@@ -153,7 +157,7 @@ instance FromJSON TokenMap where
       findTokenMap :: (Key, Value) -> TokenMap
       findTokenMap (k,v) = case (k,v) of
                              (a, Number b) ->  case toBoundedInteger b of
-                                                 Just c -> TokenMap (toString a) (c)
+                                                 Just c -> TokenMap (encodeUtf8 $ toText a) (c)
                                                  Nothing -> error $ "value out of bounds: " <> show b
                              (_,b) -> error $ "failed to parse " <> show b <> " as a Number."
       onlyOne :: (Show a) => [a] -> a
@@ -178,12 +182,16 @@ instance Tokenable [Char] where
 vocabFromText :: [Char] -> Vocabulary
 vocabFromText input = Vocabulary $ (\(t, v) -> TokenMap t v) <$> zip vocab [0,1..]
   where
+    vocab :: [ByteString]
     vocab = sortUniq $ splitString input
 
 -- | split up a string into tokens. yes, the barriers between tokens are arbitrary, matching the ones used in the book.
-splitString :: [Char] -> [[Char]]
-splitString input = concat $ split (dropBlanks $ onSublist "--") <$> separatePunctuation 
+splitString :: [Char] -> [ByteString]
+splitString input = BSU.fromString <$> separateDoubleDash
   where
+    separateDoubleDash :: [[Char]]
+    separateDoubleDash = concat $ split (dropBlanks $ onSublist "--") <$> separatePunctuation
+    separatePunctuation :: [[Char]]
     separatePunctuation = concat $ split (oneOf ",.:;?_!\"()'") <$> words
     words = splitOneOf " \n" input
 
@@ -191,21 +199,21 @@ splitString input = concat $ split (dropBlanks $ onSublist "--") <$> separatePun
 getTokensFromString :: Vocabulary -> Maybe Int -> [Char] -> [Int]
 getTokensFromString (Vocabulary rawVocab) unk string = findTokenOfString <$> splitString string
   where
-    findTokenOfString :: [Char] -> Int
+    findTokenOfString :: ByteString -> Int
     findTokenOfString s = case lookup s vocab of
                                Just t -> t
                                Nothing -> case unk of
-                                            Nothing -> error $ "cannot find a token for \"" <> s <> "\"\n"
                                             Just t -> t
+                                            Nothing -> error $ "cannot find a token for \"" <> (BSU.toString s) <> "\"\n"
     vocab = (\(TokenMap t v) -> (t, v)) <$> rawVocab
 
 
 getStringFromTokens :: Vocabulary -> [Int] -> [Char]
 getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse ' ' $ findStringOfToken <$> tokens
   where
-    maybeIntersperse :: Char -> [[Char]] -> [Char]
+    maybeIntersperse :: Char -> [ByteString] -> [Char]
     maybeIntersperse _ [] = []
-    maybeIntersperse x xs = foldr1 maybeIntersperse' xs
+    maybeIntersperse x xs = foldr1 maybeIntersperse' (BSU.toString <$> xs)
       where
         maybeIntersperse' :: [Char] -> [Char] -> [Char]
         maybeIntersperse' a b = case (head b) `elem` (",.?!\"()'" :: [Char]) of
@@ -260,13 +268,14 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     vocab = vocabOfText text
     extendedVocab (Vocabulary v) = Vocabulary $ v ++ [TokenMap "<|endoftext|>" (length v), TokenMap "<|unk|>" (length v + 1)]
 
-example_2_5_1 :: [Char] -> BSU.ByteString -> [Int]
+example_2_5_1 :: [Char] -> ByteString -> [Int]
 example_2_5_1 text dictionaryFile = tokensFromString vocab text
   where
     vocab :: Vocabulary
     vocab = case decodeStrict dictionaryFile of
               Just v -> v
               Nothing -> error "no vocabulary?"
+
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
 run rawArgs =
@@ -277,7 +286,7 @@ run rawArgs =
                  Nothing -> getContents
                  Just inFile -> PL.readFile inFile
       return input
-    readDictionary :: IO BSU.ByteString
+    readDictionary :: IO ByteString
     readDictionary = do
       input <- case dictionaryOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own dictionary, in JSON format."
