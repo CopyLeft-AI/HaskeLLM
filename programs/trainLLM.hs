@@ -152,7 +152,9 @@ data Vocabulary = Vocabulary [TokenMap]
   deriving Show
 
 findVocabulary :: [(Key, Value)] -> Vocabulary
-findVocabulary maybeTokenMaps = Vocabulary $ findTokenMap <$> maybeTokenMaps
+findVocabulary maybeTokenMaps = Vocabulary tokenMaps
+  where
+    tokenMaps = findTokenMap <$> maybeTokenMaps
 
 instance ToJSON Vocabulary where
   toJSON (Vocabulary tokenMaps) = Array $ fromList $ toJSON <$> tokenMaps
