@@ -201,15 +201,15 @@ getTokensFromString (Vocabulary rawVocab) unk string = findTokenOfString <$> spl
 
 
 getStringFromTokens :: Vocabulary -> [Int] -> [Char]
-getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse " " $ findStringOfToken <$> tokens
+getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse ' ' $ findStringOfToken <$> tokens
   where
-    maybeIntersperse :: [Char] -> [[Char]] -> [Char]
+    maybeIntersperse :: Char -> [[Char]] -> [Char]
     maybeIntersperse _ [] = []
     maybeIntersperse x xs = foldr1 maybeIntersperse' xs
       where
         maybeIntersperse' :: [Char] -> [Char] -> [Char]
         maybeIntersperse' a b = case (head b) `elem` (",.?!\"()'" :: [Char]) of
-                                  False -> a ++ x ++ b
+                                  False -> a ++ x:b
                                   True -> a ++ b
     findStringOfToken t = case lookup t bacov of
                             Just s -> s
