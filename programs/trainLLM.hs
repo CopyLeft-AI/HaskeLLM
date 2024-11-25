@@ -124,19 +124,6 @@ trainOpts =
     )
   )
 
-data Vocabulary = Vocabulary [TokenMap]
-  deriving Show
-
-findVocabulary :: [(Key, Value)] -> Vocabulary
-findVocabulary maybeTokenMaps = Vocabulary $ findTokenMap <$> maybeTokenMaps
-
-instance ToJSON Vocabulary where
-  toJSON (Vocabulary tokenMaps) = Array $ fromList $ toJSON <$> tokenMaps
-
-instance FromJSON Vocabulary where
-  parseJSON = withObject "Vocabulary" (\v -> pure $ findVocabulary $ toList v)
-    where
-
 data TokenMap =
   TokenMap { tm_token :: ByteString
            , tm_value :: Int
@@ -160,6 +147,18 @@ instance FromJSON TokenMap where
       onlyOne [] = error $ "no item!\n"
       onlyOne [a] = a
       onlyOne xs = error $ "too many items." <> show xs <> "\n"
+
+data Vocabulary = Vocabulary [TokenMap]
+  deriving Show
+
+findVocabulary :: [(Key, Value)] -> Vocabulary
+findVocabulary maybeTokenMaps = Vocabulary $ findTokenMap <$> maybeTokenMaps
+
+instance ToJSON Vocabulary where
+  toJSON (Vocabulary tokenMaps) = Array $ fromList $ toJSON <$> tokenMaps
+
+instance FromJSON Vocabulary where
+  parseJSON = withObject "Vocabulary" (\v -> pure $ findVocabulary $ toList v)
 
 -- A typeclass for tokenization.
 class Tokenable s where
