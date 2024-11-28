@@ -53,6 +53,7 @@ executable trainLLM
         aeson,
         minbpe-hs,
         bytestring,
+        insert-ordered-containers,
         optparse-applicative -any,
         scientific,
         split,
