@@ -9,7 +9,7 @@ tested-with:   GHC == 9.0.2
 homepage:      https://claif.org/
 synopsis:      A trivial LLM training system.
 description:   An LLM training system, based on the book "training an llm(from scratch)".
-category:      AI
+category:      Text
 build-type:    Simple
 
 source-repository head
@@ -18,7 +18,7 @@ source-repository head
 
 library
     exposed-modules:
-	AI.train
+        Text.LLM
 
     other-modules:
     default-language:   Haskell2010

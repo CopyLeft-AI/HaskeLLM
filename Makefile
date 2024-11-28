@@ -39,7 +39,7 @@ RTSOPTS=+RTS -N -qg -t
 # Uncomment for valgrind on the examples.
 #VALGRIND=valgrind --tool=cachegrind --cachegrind-out-file=$$each.cachegrind.`date +%s`
 
-LIBDIR=AI
+LIBDIR=Text
 LIBFILES=$(shell find ${LIBDIR} -name '*.hs')
 LIBBUILD=$(shell find ${LIBDIR} -name '*.hi')
 LIBTARGET=${BUILDROOT}/build/${LIBDIR}/Htrain.o
