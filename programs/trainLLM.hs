@@ -20,18 +20,21 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Either(Left, Right), Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
-import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), decodeStrict, withObject)
+import Data.Aeson (Value(Number), FromJSON(parseJSON), eitherDecode, withObject)
 
 import Data.Aeson.Key (Key, toText)
 
+import BPE.Base (Vocab)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.ByteString (ByteString)
+import qualified Data.ByteString as BSS (ByteString)
+
+import qualified Data.ByteString.Lazy as BSL (ByteString, readFile)
 
 import qualified Data.ByteString.UTF8 as BSU (toString, fromString)
 
@@ -49,9 +52,7 @@ import Data.List.Unique (sortUniq)
 
 import Data.Scientific (toBoundedInteger)
 
-import Data.Text.Encoding (decodeUtf8, encodeUtf8)
-
-import qualified Data.Vector as DV (fromList)
+import Data.Text.Encoding (encodeUtf8)
 
 import Options.Applicative (Parser, ReadM, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
 
@@ -127,59 +128,53 @@ trainOpts =
     )
   )
 
-data Vocabulary = Vocabulary (InsOrdHashMap Int ByteString)
-  deriving Show
+-- A Bacov, a Vocab with the key and value swapped. native form, when coming out of our file.
+data Bacov = Bacov (InsOrdHashMap BSS.ByteString Int)
 
-findVocabulary :: [(Key, Value)] -> Vocabulary
-findVocabulary maybeTokenMaps = Vocabulary tokenMaps
+findBacov :: [(Key, Value)] -> Bacov
+findBacov maybeTokenMaps = Bacov tokenMaps
   where
---    tokenMaps :: Ins
     tokenMaps = tokenMaps' maybeTokenMaps empty
-    tokenMaps' :: [(Key, Value)] -> InsOrdHashMap Int ByteString -> InsOrdHashMap Int ByteString
+    tokenMaps' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString Int -> InsOrdHashMap BSS.ByteString Int
     tokenMaps' [] myTokenMaps = myTokenMaps
-    tokenMaps' [(k,v)] myTokenMaps = insert (numberFromValue v) (encodeUtf8 $ toText k) myTokenMaps
-    tokenMaps' ((k,v):xs) myTokenMaps = insert (numberFromValue v) (encodeUtf8 $ toText k) (tokenMaps' xs myTokenMaps)
+    tokenMaps' [(k,v)] myTokenMaps = insert (encodeUtf8 $ toText k) (numberFromValue v) myTokenMaps
+    tokenMaps' ((k,v):xs) myTokenMaps = insert (encodeUtf8 $ toText k) (numberFromValue v) (tokenMaps' xs myTokenMaps)
     numberFromValue :: Value -> Int
     numberFromValue (Number v) = case toBoundedInteger v of
                                    Nothing -> error $ "failed to find bounded integer for: " <> show v <> "\n"
                                    Just a -> a
     numberFromValue a = error $ "failed to parse " <> show a <> " as a Number."
 
-instance ToJSON Vocabulary where
-  toJSON (Vocabulary tokenMaps) = Array $ DV.fromList $ toJSON <$> myTokenMaps
-    where
-      myTokenMaps = (\(a,b) -> (a,BSU.toString b)) <$> DHSI.toList tokenMaps
-
-instance FromJSON Vocabulary where
-  parseJSON = withObject "Vocabulary" (\v -> pure $ findVocabulary $ DAKM.toList v)
+instance FromJSON Bacov where
+  parseJSON = withObject "Bacov" (\v -> pure $ findBacov $ DAKM.toList v)
 
 -- A typeclass for tokenization.
 class Tokenable s where
   -- | Establish a vocabulary from a set of strings.
-  vocabOfText :: s -> Vocabulary
+  vocabOfText :: s -> Vocab
   -- Use a vocabulary to reconstruct tokens into a string.
-  stringFromTokens :: Vocabulary -> [Int] -> s
+  stringFromTokens :: Vocab -> [Int] -> s
   -- Use a vocabulary to tokenize an input.
-  tokensFromString :: Vocabulary -> s -> [Int] 
+  tokensFromString :: Vocab -> s -> [Int]
 
 instance Tokenable [Char] where
   vocabOfText s = vocabFromText s
   stringFromTokens v t = getStringFromTokens v t
   tokensFromString v s = getTokensFromString v Nothing s
 
-vocabFromText :: [Char] -> Vocabulary
-vocabFromText input = Vocabulary tokenMaps
+vocabFromText :: [Char] -> Vocab
+vocabFromText input = tokenMaps
   where
-    tokenMaps :: InsOrdHashMap Int ByteString
+    tokenMaps :: InsOrdHashMap Int BSS.ByteString
     tokenMaps = tokenMaps' (zip [0,1..] vocab) empty
     tokenMaps' [] map = map
     tokenMaps' [(k,v)] map = insert k v map
     tokenMaps' ((k,v):xs) map = insert k v (tokenMaps' xs map)
-    vocab :: [ByteString]
+    vocab :: [BSS.ByteString]
     vocab = sortUniq $ splitString input
 
 -- | split up a string into tokens. yes, the barriers between tokens are arbitrary, matching the ones used in the book.
-splitString :: [Char] -> [ByteString]
+splitString :: [Char] -> [BSS.ByteString]
 splitString input = BSU.fromString <$> separateDoubleDash
   where
     separateDoubleDash :: [[Char]]
@@ -189,25 +184,25 @@ splitString input = BSU.fromString <$> separateDoubleDash
     words = splitOneOf " \n" input
 
 -- | Use a list of tokens to tokenize a string. optionally accepts an unknown token.
-getTokensFromString :: Vocabulary -> Maybe Int -> [Char] -> [Int]
-getTokensFromString (Vocabulary rawVocab) unk string = findTokenOfString <$> splitString string
+getTokensFromString :: Vocab -> Maybe Int -> [Char] -> [Int]
+getTokensFromString rawVocab unk string = findTokenOfString <$> splitString string
   where
-    findTokenOfString :: ByteString -> Int
+    findTokenOfString :: BSS.ByteString -> Int
     findTokenOfString s = case lookup s bacov of
                                Just v -> v
                                Nothing -> case unk of
                                             Just t -> t
                                             Nothing -> error $ "cannot find a token for \"" <> (BSU.toString s) <> "\"\n"
     -- the vocabulary backwards: a mapping from value to token.
-    bacov :: InsOrdHashMap ByteString Int
+    bacov :: InsOrdHashMap BSS.ByteString Int
     bacov = DHSI.fromList (swap <$> DHSI.toList rawVocab)
     swap (a,b) = (b,a)
 
 
-getStringFromTokens :: Vocabulary -> [Int] -> [Char]
-getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse ' ' $ findStringOfToken <$> tokens
+getStringFromTokens :: Vocab -> [Int] -> [Char]
+getStringFromTokens rawVocab tokens = maybeIntersperse ' ' $ findStringOfToken <$> tokens
   where
-    maybeIntersperse :: Char -> [ByteString] -> [Char]
+    maybeIntersperse :: Char -> [BSS.ByteString] -> [Char]
     maybeIntersperse _ [] = []
     maybeIntersperse x xs = foldr1 maybeIntersperse' (BSU.toString <$> xs)
       where
@@ -222,8 +217,8 @@ getStringFromTokens (Vocabulary rawVocab) tokens = maybeIntersperse ' ' $ findSt
 example_2_1 :: [Char] -> [Char]
 example_2_1 text = "Total number of character: " <> show (length text) <> "\n" <> take 99 text
 
-example_2_2 :: [Char] -> Vocabulary
-example_2_2 text = Vocabulary $ DHSI.fromList $ take 51 $ DHSI.toRevList $ (\(Vocabulary a) -> a) $ vocabOfText text
+example_2_2 :: [Char] -> Vocab
+example_2_2 text = DHSI.fromList $ take 51 $ DHSI.toRevList $ vocabOfText text
 
 -- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
 -- This is the encoding one.
@@ -240,36 +235,41 @@ example_2_3_2 text tokens = stringFromTokens vocab tokens
     vocab = vocabOfText text
 
 -- | Example 2.4 has several sub examples. This one prints the last 5 tokens in our extended vocabulary.
-example_2_4_1 :: [Char] -> Vocabulary
-example_2_4_1 text = Vocabulary $ DHSI.fromList $ drop (vocabLength vocab - 3) $ DHSI.toList $ rawExtendedVocab vocab
+example_2_4_1 :: [Char] -> Vocab
+example_2_4_1 text = DHSI.fromList $ drop (vocabLength vocab - 3) $ DHSI.toList $ extendedVocab vocab
   where
     vocab = vocabOfText text
-    vocabLength (Vocabulary v) = length v
-    rawExtendedVocab :: Vocabulary -> InsOrdHashMap Int ByteString
-    rawExtendedVocab (Vocabulary v) = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
+    vocabLength v = length v
+    extendedVocab :: Vocab -> InsOrdHashMap Int BSS.ByteString
+    extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
 
 -- Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
 example_2_4_2 :: [Char] -> [Char] -> [Int]
 example_2_4_2 text string = getTokensFromString (extendedVocab vocab) (Just $ vocabLength (extendedVocab vocab) - 1) string
   where
     vocab = vocabOfText text
-    vocabLength (Vocabulary v) = length v
-    extendedVocab (Vocabulary v) = Vocabulary $ insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
+    vocabLength v = length v
+    extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
 
 -- Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
 example_2_4_3 :: [Char] -> [Int] -> [Char]
 example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
   where
     vocab = vocabOfText text
-    extendedVocab (Vocabulary v) = Vocabulary $ insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
+    extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
 
-example_2_5_1 :: [Char] -> ByteString -> [Int]
-example_2_5_1 text dictionaryFile = tokensFromString vocab text
+example_2_5_1 :: [Char] -> BSL.ByteString -> [Int]
+example_2_5_1 text dictionary = tokensFromString foundDictionary text
   where
-    vocab :: Vocabulary
-    vocab = case decodeStrict dictionaryFile of
-              Just v -> v
-              Nothing -> error "no vocabulary?"
+    foundDictionary :: Vocab
+    foundDictionary = case eitherDecode dictionary :: Either String Bacov of
+                        Left err -> error $ "parse error when reading dictionary:\n" <> err <> "\n" <> show dictionary <> "\n"
+                        Right d -> flip d
+                          where
+                            flip ::  Bacov -> Vocab
+                            flip vk = DHSI.fromList (swap <$> (DHSI.toList $ (\(Bacov v) -> v) vk))
+                              where
+                                swap (a,b) = (b,a)
 
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
@@ -281,12 +281,12 @@ run rawArgs =
                  Nothing -> getContents
                  Just inFile -> PL.readFile inFile
       return input
-    readDictionary :: IO ByteString
+    readDictionary :: IO BSL.ByteString
     readDictionary = do
       input <- case dictionaryOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own dictionary, in JSON format."
-                 Just inFile -> PL.readFile inFile
-      return $ BSU.fromString input
+                 Just inFile -> BSL.readFile inFile
+      return input
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
@@ -329,4 +329,3 @@ main = execParser opts >>= run
                <> progDesc "TrainLLM: An implementation of the examples from 'Build a Large Language Model (From Scratch)'."
                <> header "trainLLM - LLM Training in haskell."
              )
-
