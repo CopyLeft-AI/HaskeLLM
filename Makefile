@@ -160,3 +160,6 @@ the-verdict.txt:
 
 gpt2-vocab.json:
 	curl https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json -o $@
+
+gpt2-merges.txt:
+	curl https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt -o $@

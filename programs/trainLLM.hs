@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Either(Left, Right), Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Either(Left, Right), Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -28,13 +28,19 @@ import Data.Aeson (Value(Number), FromJSON(parseJSON), eitherDecode, withObject)
 
 import Data.Aeson.Key (Key, toText)
 
-import BPE.Base (Vocab)
+import BPE.Base (Merges, Vocab)
+
+import BPE.Regex (encodeOrdinary, gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
 import qualified Data.ByteString as BSS (ByteString)
 
+import Data.ByteString.Char8 (lines)
+
 import qualified Data.ByteString.Lazy as BSL (ByteString, readFile)
+
+import qualified Data.ByteString.Lazy.UTF8 as BSLU (break, lines)
 
 import qualified Data.ByteString.UTF8 as BSU (toString, fromString)
 
@@ -89,6 +95,7 @@ data TrainRootOpts =
     {
       inputFileOpt :: Maybe String
     , dictionaryOpt :: Maybe String
+    , mergesOpt :: Maybe String
     , exampleOpt :: Example
     , verboseFlag :: Maybe Bool
     }
@@ -110,6 +117,14 @@ trainOpts =
       <> long "dictionary"
       <> metavar "DICTIONARY"
       <> help "load a JSON formatted dictionary"
+    )
+  )
+  <*> optional (
+  strOption
+    (    short 'm'
+      <> long "merges"
+      <> metavar "MERGES"
+      <> help "load a JSON formatted list of merges"
     )
   )
   <*> (
@@ -258,18 +273,32 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     vocab = vocabOfText text
     extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
 
-example_2_5_1 :: [Char] -> BSL.ByteString -> [Int]
-example_2_5_1 text dictionary = tokensFromString foundDictionary text
-  where
-    foundDictionary :: Vocab
-    foundDictionary = case eitherDecode dictionary :: Either String Bacov of
-                        Left err -> error $ "parse error when reading dictionary:\n" <> err <> "\n" <> show dictionary <> "\n"
-                        Right d -> flip d
-                          where
-                            flip ::  Bacov -> Vocab
-                            flip vk = DHSI.fromList (swap <$> (DHSI.toList $ (\(Bacov v) -> v) vk))
+example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> [Int]
+example_2_5_1 text merges dictionary = encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text) -- tokensFromString (dictionaryFromJSON dictionary) text
+
+-- | Read a dictionary from a JSON formatted map.
+dictionaryFromJSON :: BSL.ByteString -> Vocab
+dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
+                            Left err -> error $ "parse error when reading dictionary:\n" <> err <> "\n" <> show json <> "\n"
+                            Right d -> flip d
                               where
-                                swap (a,b) = (b,a)
+                                flip ::  Bacov -> Vocab
+                                flip vk = DHSI.fromList (swap <$> (DHSI.toList $ (\(Bacov v) -> v) vk))
+                                  where
+                                    swap (a,b) = (b,a)
+
+-- | Read a set of Merges from a TXT file.
+-- Expects:
+-- First line: #version 0.2\n
+-- All other lines: <string1><space><string2>
+-- each line coresponds to a token of <string1><string2>, starting from token 256, in a vocabulary.
+-- In string one, a special character stands in for a single space.
+mergesFromTXT :: BSL.ByteString -> Merges
+mergesFromTXT text = error $ show $ BSLU.lines mergeLines
+  where
+    (_,mergeLines) = BSLU.break (== '\n') text
+    -- for GPT2:
+    specialCharacter = 'Ġ'
 
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
@@ -285,6 +314,12 @@ run rawArgs =
     readDictionary = do
       input <- case dictionaryOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own dictionary, in JSON format."
+                 Just inFile -> BSL.readFile inFile
+      return input
+    readMerges :: IO BSL.ByteString
+    readMerges = do
+      input <- case mergesOpt rawArgs of
+                 Nothing -> error "This example requires you to pass in your own merges file, in text format."
                  Just inFile -> BSL.readFile inFile
       return input
     beVerbose = case verboseFlag rawArgs of
@@ -312,7 +347,8 @@ run rawArgs =
                  <> (show $ example_2_4_3 input $ example_2_4_2 input example_2_4_String) <> "\n"
       Example (2,5) -> do
         dictionary <- readDictionary
-        putStrLn $ (show (example_2_5_1 example_2_5_String dictionary :: [Int])) <> "\n"
+        merges <- readMerges
+        putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary :: [Int])) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
