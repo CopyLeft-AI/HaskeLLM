@@ -27,3 +27,4 @@ cabal.project.local*
 dist-newstyle/
 the-verdict.txt
 gpt2-vocab.json
+gpt2-merges.txt
