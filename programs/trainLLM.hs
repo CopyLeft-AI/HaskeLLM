@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Either(Left, Right), Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -34,21 +34,21 @@ import BPE.Regex (encodeOrdinary, gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import qualified Data.ByteString as BSS (ByteString)
+import qualified Data.ByteString as BSS (ByteString, pack, singleton)
 
-import Data.ByteString.Char8 (lines)
+import qualified Data.ByteString.Lazy as BSL (ByteString, fromStrict, readFile, toStrict)
 
-import qualified Data.ByteString.Lazy as BSL (ByteString, readFile)
-
-import qualified Data.ByteString.Lazy.UTF8 as BSLU (break, lines)
+import qualified Data.ByteString.Lazy.UTF8 as BSLU (break, drop, lines)
 
 import qualified Data.ByteString.UTF8 as BSU (toString, fromString)
 
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
+import Data.Either (Either (Left, Right), lefts, rights)
+
 import Data.HashMap.Strict.InsOrd (InsOrdHashMap, empty, insert, lookup, size)
 
-import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList)
+import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList, union)
 
 import Data.List ((++), drop, elem, foldr1, head)
 
@@ -59,6 +59,8 @@ import Data.List.Unique (sortUniq)
 import Data.Scientific (toBoundedInteger)
 
 import Data.Text.Encoding (encodeUtf8)
+
+import Data.Word (Word8)
 
 import Options.Applicative (Parser, ReadM, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
 
@@ -294,11 +296,66 @@ dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
 -- each line coresponds to a token of <string1><string2>, starting from token 256, in a vocabulary.
 -- In string one, a special character stands in for a single space.
 mergesFromTXT :: BSL.ByteString -> Merges
-mergesFromTXT text = error $ show $ BSLU.lines mergeLines
+mergesFromTXT text = DHSI.fromList (splitLineRecurse defaultBacov [] $ zip [255,256..] (Left <$> (drop 1 $ BSLU.lines mergeLines)))
   where
+    -- Discard the first line of the file.
     (_,mergeLines) = BSLU.break (== '\n') text
-    -- for GPT2:
-    specialCharacter = 'Ġ'
+    -- a special character representing a single space, on the left side of a merge. for GPT2:
+    specialCharacter :: (Word8,Word8)
+    specialCharacter = (196,160) -- 'Ġ'
+    swap (a,b) = (b,a)
+    -- An initial (reverse) vocabulary, consisting of....
+    defaultBacov :: Bacov
+    defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1..93]) <> -- the first 94 characters of ascii, after 33 control signals.
+                                           (zip ((\a -> BSS.pack [194,128+a]) <$> [33,34..44]) [94, 95..105] ) <>   -- UTF8 characters U+00A1-U+00AB
+                                           (zip ((\a -> BSS.pack [194,128+a]) <$> [46,47..63]) [106, 107..123] ) <> -- UTF8 characters U+00AD-U+00BF
+                                           (zip ((\a -> BSS.pack [195,128+a]) <$> [0,1..63]) [124, 125..187] ) <>   -- UTF8 characters U+00C0-U+00FF
+                                           (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..252] ) <>   -- UTF8 characters U+0100-U+013F
+                                           (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..255] )      -- UTF8 characters U+0140-U+017F
+    splitLineRecurse :: Bacov -> [((Int, Int), Int)] -> [(Int, Either BSL.ByteString (Either BSS.ByteString Int, BSS.ByteString))] -> [((Int, Int), Int)]
+    splitLineRecurse bacovIn mergesDone mergesTodo = case lefts res of
+                                                       [] -> mergesDone <> rights res
+                                                       _ -> splitLineRecurse newBacov (mergesDone <> rights res) (lefts res)
+      where
+        -- new entries, from this layer.
+        foundBacov :: Bacov
+        foundBacov = Bacov $ DHSI.fromList $ ((\(a,b) -> (BSL.toStrict (byteStringFrom a),b)) <$> rights res)
+          where
+           byteStringFrom :: (Int, Int) -> BSL.ByteString
+           byteStringFrom (tok1, tok2) =  case lookup tok1 (flip bacovIn) of
+                                            Nothing -> error $ show (lookup tok1 (flip bacovIn)) <> "\n" <> show tok2 <> "\n"
+                                            (Just pre) -> case lookup tok2 (flip bacovIn) of
+                                                            Nothing -> error $ show (lookup tok2 (flip bacovIn)) <> "\n" <> show tok2 <> "\n"
+                                                            (Just post) -> BSL.fromStrict $ pre <> post
+
+        newBacov :: Bacov
+        newBacov = unionBacovs bacovIn foundBacov
+          where
+            unionBacovs :: Bacov -> Bacov -> Bacov
+            unionBacovs (Bacov rawBacov1) (Bacov rawBacov2) = Bacov $ DHSI.union rawBacov1 rawBacov2
+        flip ::  Bacov -> Vocab
+        flip vk = DHSI.fromList (swap <$> (DHSI.toList $ (\(Bacov v) -> v) vk))
+        res :: [Either (Int, Either BSL.ByteString (Either BSS.ByteString Int, BSS.ByteString)) ((Int, Int), Int)]
+        res = splitLine bacovIn <$> mergesTodo
+    splitLine :: Bacov -> (Int, Either BSL.ByteString (Either BSS.ByteString Int, BSS.ByteString)) -> Either (Int, Either BSL.ByteString (Either BSS.ByteString Int, BSS.ByteString)) ((Int, Int), Int)
+    splitLine (Bacov rawBacov) tokenMap@(tokenNumber, (Right (Right token1, post))) =
+      case lookup post rawBacov of
+        Nothing -> Left tokenMap
+        Just token2 -> Right ((token1, token2), tokenNumber)
+    splitLine (Bacov rawBacov) tokenMap@(tokenNumber, (Right (Left pre, post))) =
+      case lookup pre rawBacov of
+        Nothing -> Left tokenMap
+        Just token1 -> case lookup post rawBacov of
+                         Nothing -> Left (tokenNumber, (Right (Right token1, post)))
+                         Just token2 -> Right ((token1, token2), tokenNumber)
+    splitLine (Bacov rawBacov) (tokenNumber, (Left string)) =
+      case lookup pre rawBacov of
+        Nothing -> Left (tokenNumber, (Right (Left pre, post)))
+        Just token1 -> case lookup post rawBacov of
+                         Nothing -> Left (tokenNumber, (Right (Right token1, post)))
+                         Just token2 -> Right ((token1, token2), tokenNumber)
+      where
+        (pre, post) = (\(a,b) -> (BSL.toStrict a, BSL.toStrict $ BSLU.drop 1 b)) $ BSLU.break (== ' ') string
 
 -- | select which example to run.
 run :: TrainRootOpts -> IO ()
