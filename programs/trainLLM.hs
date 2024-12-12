@@ -28,7 +28,7 @@ import Data.Aeson (Value(Number), FromJSON(parseJSON), eitherDecode, withObject)
 
 import Data.Aeson.Key (Key, toText)
 
-import BPE.Base (Merges, Vocab)
+import BPE.Base (Merges, Vocab, mergesToVocab)
 
 import BPE.Regex (encodeOrdinary, gpt2pattern)
 
@@ -50,7 +50,7 @@ import Data.HashMap.Strict.InsOrd (InsOrdHashMap, empty, insert, lookup, size)
 
 import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList, union)
 
-import Data.List ((++), drop, elem, foldr1, head)
+import Data.List ((++), drop, elem, foldr1, head, sort)
 
 import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 
@@ -276,7 +276,13 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
 
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> [Int]
-example_2_5_1 text merges dictionary = encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text) -- tokensFromString (dictionaryFromJSON dictionary) text
+example_2_5_1 text merges dictionary
+  | mergeDictionary == jsonDictionary = encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
+  | otherwise = error $ (show $ take 100 $ drop 250 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
+                     <> (show $ take 100 $ drop 250 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
+  where
+    mergeDictionary = mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    jsonDictionary = dictionaryFromJSON dictionary
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -289,29 +295,39 @@ dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
                                   where
                                     swap (a,b) = (b,a)
 
+initVocabGPT2 :: Vocab
+initVocabGPT2 = flip defaultBacov
+  where
+    flip ::  Bacov -> Vocab
+    flip vk = DHSI.fromList (swap <$> (DHSI.toList $ (\(Bacov v) -> v) vk))
+      where
+        swap (a,b) = (b,a)
+
+-- The default starting vocabulary, taken from the first 256 tokens of gpt2.
+-- An initial (reverse) vocabulary, consisting of....
+defaultBacov :: Bacov
+defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1..93]) -- the first 94 characters of ascii, after 33 control signals.
+                                     <> (zip ((\a -> BSS.pack [194,128+a]) <$> [33,34..44]) [94, 95..105] )    -- UTF8 characters U+00A1-U+00AB
+                                     <> (zip ((\a -> BSS.pack [194,128+a]) <$> [46,47..63]) [106, 107..123] )  -- UTF8 characters U+00AD-U+00BF
+                                     <> (zip ((\a -> BSS.pack [195,128+a]) <$> [0,1..63]) [124, 125..187] )    -- UTF8 characters U+00C0-U+00FF
+                                     <> (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..251] )    -- UTF8 characters U+0100-U+013F
+                                     <> (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..256] )    -- UTF8 characters U+0140-U+017F
+
 -- | Read a set of Merges from a TXT file.
 -- Expects:
 -- First line: #version 0.2\n
 -- All other lines: <string1><space><string2>
 -- each line coresponds to a token of <string1><string2>, starting from token 256, in a vocabulary.
--- In string one, a special character stands in for a single space.
+-- In strings, a special character stands in for a single space.
 mergesFromTXT :: BSL.ByteString -> Merges
-mergesFromTXT text = DHSI.fromList (splitLineRecurse defaultBacov [] $ zip [255,256..] (Left <$> (drop 1 $ BSLU.lines mergeLines)))
+mergesFromTXT text = DHSI.fromList (splitLineRecurse defaultBacov [] $ zip [256,257..] (Left <$> (drop 1 $ BSLU.lines mergeLines)))
   where
     -- Discard the first line of the file.
     (_,mergeLines) = BSLU.break (== '\n') text
     -- a special character representing a single space, on the left side of a merge. for GPT2:
     specialCharacter :: (Word8,Word8)
-    specialCharacter = (196,160) -- 'Ġ'
+    specialCharacter = (196,160) -- 'Ġ', UTF8 character U+120
     swap (a,b) = (b,a)
-    -- An initial (reverse) vocabulary, consisting of....
-    defaultBacov :: Bacov
-    defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1..93]) <> -- the first 94 characters of ascii, after 33 control signals.
-                                           (zip ((\a -> BSS.pack [194,128+a]) <$> [33,34..44]) [94, 95..105] ) <>   -- UTF8 characters U+00A1-U+00AB
-                                           (zip ((\a -> BSS.pack [194,128+a]) <$> [46,47..63]) [106, 107..123] ) <> -- UTF8 characters U+00AD-U+00BF
-                                           (zip ((\a -> BSS.pack [195,128+a]) <$> [0,1..63]) [124, 125..187] ) <>   -- UTF8 characters U+00C0-U+00FF
-                                           (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..252] ) <>   -- UTF8 characters U+0100-U+013F
-                                           (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..255] )      -- UTF8 characters U+0140-U+017F
     splitLineRecurse :: Bacov -> [((Int, Int), Int)] -> [(Int, Either BSL.ByteString (Either BSS.ByteString Int, BSS.ByteString))] -> [((Int, Int), Int)]
     splitLineRecurse bacovIn mergesDone mergesTodo = case lefts res of
                                                        [] -> mergesDone <> rights res
@@ -405,7 +421,7 @@ run rawArgs =
       Example (2,5) -> do
         dictionary <- readDictionary
         merges <- readMerges
-        putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary :: [Int])) <> "\n"
+        putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary)) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
