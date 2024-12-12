@@ -278,10 +278,11 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> [Int]
 example_2_5_1 text merges dictionary
   | mergeDictionary == jsonDictionary = encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
-  | otherwise = error $ (show $ take 100 $ drop 250 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
-                     <> (show $ take 100 $ drop 250 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
+  | otherwise = error $ (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
+                     <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
-    mergeDictionary = mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    mergeDictionary = extendedVocab $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    extendedVocab v = insert (size v) "<|endoftext|>" v
     jsonDictionary = dictionaryFromJSON dictionary
 
 -- | Read a dictionary from a JSON formatted map.
@@ -295,6 +296,7 @@ dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
                                   where
                                     swap (a,b) = (b,a)
 
+-- The default starting vocabulary, taken from the first 256 tokens of gpt2.
 initVocabGPT2 :: Vocab
 initVocabGPT2 = flip defaultBacov
   where
