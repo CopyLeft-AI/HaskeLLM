@@ -311,7 +311,7 @@ defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1.
                                      <> (zip ((\a -> BSS.pack [194,128+a]) <$> [46,47..63]) [106, 107..123] )  -- UTF8 characters U+00AD-U+00BF
                                      <> (zip ((\a -> BSS.pack [195,128+a]) <$> [0,1..63]) [124, 125..187] )    -- UTF8 characters U+00C0-U+00FF
                                      <> (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..251] )    -- UTF8 characters U+0100-U+013F
-                                     <> (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..256] )    -- UTF8 characters U+0140-U+017F
+                                     <> (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..255] )    -- UTF8 characters U+0140-U+017F
 
 -- | Read a set of Merges from a TXT file.
 -- Expects:
