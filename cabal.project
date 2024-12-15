@@ -6,4 +6,4 @@ documentation: True
 source-repository-package
    type:     git
    location: https://github.com/julialongtin/minbpe-hs.git
-   tag: 9125a016c007192fe5f68444eda165b0d399fa85
+   tag: 8015172e52fda8ba19760d2bc83170c381a6ee2c

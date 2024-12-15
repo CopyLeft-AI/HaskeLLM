@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), ($), (*), (+), (-), concat, error, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -28,13 +28,15 @@ import Data.Aeson (Value(Number), FromJSON(parseJSON), eitherDecode, withObject)
 
 import Data.Aeson.Key (Key, toText)
 
-import BPE.Base (Merges, Vocab, mergesToVocab)
+import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
+
+import BPE.Basic (decode, encode)
 
 import BPE.Regex (encodeOrdinary, gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import qualified Data.ByteString as BSS (ByteString, pack, singleton)
+import qualified Data.ByteString as BSS (ByteString, pack, singleton, unpack)
 
 import qualified Data.ByteString.Lazy as BSL (ByteString, fromStrict, readFile, toStrict)
 
@@ -275,14 +277,28 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
     vocab = vocabOfText text
     extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
 
-example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> [Int]
+example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
-  | mergeDictionary == jsonDictionary = encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
-  | otherwise = error $ (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
-                     <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
+  | mergeDictionary == jsonDictionary = encode initVocabGPT2 (mergesFromTXT merges) initSeqGPT2 (BSU.fromString text) -- encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
+  | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
+                     <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
+    -- a dictionary from a merge file.
     mergeDictionary = extendedVocab $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
     extendedVocab v = insert (size v) "<|endoftext|>" v
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+example_2_5_2 :: Seq -> BSL.ByteString -> BSL.ByteString -> BSS.ByteString
+example_2_5_2 seq merges dictionary
+  | mergeDictionary == jsonDictionary = decode jsonDictionary seq -- encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
+  | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
+                     <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
+  where
+    -- a dictionary from a merge file.
+    mergeDictionary = extendedVocab $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    extendedVocab v = insert (size v) "<|endoftext|>" v
+    -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
 -- | Read a dictionary from a JSON formatted map.
@@ -315,6 +331,19 @@ defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1.
                                      <> (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..251] )    -- UTF8 characters U+0100-U+013F
                                      <> (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..255] )    -- UTF8 characters U+0140-U+017F
 
+-- convert an ascii string into a sequence of tokens in the initVocabGPT2 token space.
+initSeqGPT2 :: BSS.ByteString -> Seq
+initSeqGPT2 text = conv <$> BSS.unpack text
+  where
+    conv :: Word8 -> Id
+    conv chr
+      | chr == 32 = 220 -- the special character
+      | (chr > 33) && (chr < (94 + 33)) = fromIntegral $ chr - 33
+      | otherwise = error $ "whoops: " <> show chr <> "\n"
+    -- a special character representing a single space, for GPT2:
+    specialCharacter :: (Word8,Word8)
+    specialCharacter = (196,160) -- 'Ġ', UTF8 character U+120
+
 -- | Read a set of Merges from a TXT file.
 -- Expects:
 -- First line: #version 0.2\n
@@ -326,9 +355,6 @@ mergesFromTXT text = DHSI.fromList (splitLineRecurse defaultBacov [] $ zip [256,
   where
     -- Discard the first line of the file.
     (_,mergeLines) = BSLU.break (== '\n') text
-    -- a special character representing a single space, on the left side of a merge. for GPT2:
-    specialCharacter :: (Word8,Word8)
-    specialCharacter = (196,160) -- 'Ġ', UTF8 character U+120
     swap (a,b) = (b,a)
     splitLineRecurse :: Bacov -> [((Int, Int), Int)] -> [(Int, Either BSL.ByteString (Either BSS.ByteString Int, BSS.ByteString))] -> [((Int, Int), Int)]
     splitLineRecurse bacovIn mergesDone mergesTodo = case lefts res of
@@ -424,12 +450,13 @@ run rawArgs =
         dictionary <- readDictionary
         merges <- readMerges
         putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary)) <> "\n"
+                <> (show (example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary)) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
-    example_2_5_String = "Hello, do you like" --  tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
+    example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
 
 -- | The entry point. Use the option parser then run the trainer.
 main :: IO ()
