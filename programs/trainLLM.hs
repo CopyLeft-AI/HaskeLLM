@@ -291,7 +291,7 @@ example_2_5_1 text merges dictionary
 
 example_2_5_2 :: Seq -> BSL.ByteString -> BSL.ByteString -> BSS.ByteString
 example_2_5_2 seq merges dictionary
-  | mergeDictionary == jsonDictionary = decode jsonDictionary seq -- encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = respaceGPT2 $ decode jsonDictionary seq -- encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
@@ -300,6 +300,15 @@ example_2_5_2 seq merges dictionary
     extendedVocab v = insert (size v) "<|endoftext|>" v
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
+    respaceGPT2 :: BSS.ByteString -> BSS.ByteString
+    respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
+    respaceGPT2' [] = []
+    respaceGPT2' [x] = [x]
+    respaceGPT2' (x:y:xs)
+      -- a special character representing a single space, for GPT2, it's 'Ġ', UTF8 character U+120
+      | x == 196 && y == 160 = 32 : respaceGPT2' xs
+      -- regular characters.
+      | otherwise = x : respaceGPT2' (y:xs)
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -337,12 +346,11 @@ initSeqGPT2 text = conv <$> BSS.unpack text
   where
     conv :: Word8 -> Id
     conv chr
-      | chr == 32 = 220 -- the special character
+      -- the special character, standing in for space.
+      | chr == 32 = 220
+      -- ASCII 34-128 -> Int 1-94
       | (chr > 33) && (chr < (94 + 33)) = fromIntegral $ chr - 33
       | otherwise = error $ "whoops: " <> show chr <> "\n"
-    -- a special character representing a single space, for GPT2:
-    specialCharacter :: (Word8,Word8)
-    specialCharacter = (196,160) -- 'Ġ', UTF8 character U+120
 
 -- | Read a set of Merges from a TXT file.
 -- Expects:
@@ -450,13 +458,22 @@ run rawArgs =
         dictionary <- readDictionary
         merges <- readMerges
         putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary)) <> "\n"
-                <> (show (example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary)) <> "\n"
+                <> show (example_2_5_2 example_2_5_Seq_Given merges dictionary) <> "\n"
+                <> show (example_2_5_2 example_2_5_Seq_Found merges dictionary) <> "\n"
+                <> show (example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
     example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
+    example_2_5_Seq_Found, example_2_5_Seq_Given :: Seq
+    example_2_5_Seq_Found = [15496,11,466,345,588,8887,30
+                            ,1279,91,437,1659,5239,91,29
+                            ,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
+    example_2_5_Seq_Given = [15496,11,466,345,588,8887,30,
+                             220, 50256
+                            ,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
 
 -- | The entry point. Use the option parser then run the trainer.
 main :: IO ()
