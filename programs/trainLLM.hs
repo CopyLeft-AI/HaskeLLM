@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -30,9 +30,11 @@ import Data.Aeson.Key (Key, toText)
 
 import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
 
-import BPE.Basic (decode, encode)
+import qualified BPE.Basic as BPEB (decode, encode)
 
-import BPE.Regex (encodeOrdinary, gpt2pattern)
+import qualified BPE.Regex as BPER (encode)
+
+import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
@@ -279,7 +281,7 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
 
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
-  | mergeDictionary == jsonDictionary = encode initVocabGPT2 (mergesFromTXT merges) initSeqGPT2 (BSU.fromString text) -- encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = BPEB.encode initVocabGPT2 (mergesFromTXT merges) initSeqGPT2 (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
@@ -291,7 +293,7 @@ example_2_5_1 text merges dictionary
 
 example_2_5_2 :: Seq -> BSL.ByteString -> BSL.ByteString -> BSS.ByteString
 example_2_5_2 seq merges dictionary
-  | mergeDictionary == jsonDictionary = respaceGPT2 $ decode jsonDictionary seq -- encodeOrdinary (mergesFromTXT merges) gpt2pattern (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = respaceGPT2 $ BPEB.decode jsonDictionary seq
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
@@ -300,15 +302,9 @@ example_2_5_2 seq merges dictionary
     extendedVocab v = insert (size v) "<|endoftext|>" v
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
-    respaceGPT2 :: BSS.ByteString -> BSS.ByteString
-    respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
-    respaceGPT2' [] = []
-    respaceGPT2' [x] = [x]
-    respaceGPT2' (x:y:xs)
-      -- a special character representing a single space, for GPT2, it's 'Ġ', UTF8 character U+120
-      | x == 196 && y == 160 = 32 : respaceGPT2' xs
-      -- regular characters.
-      | otherwise = x : respaceGPT2' (y:xs)
+
+example_2_6_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Int
+example_2_6_1 text merges dictionary = length (BPER.encode (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -346,11 +342,23 @@ initSeqGPT2 text = conv <$> BSS.unpack text
   where
     conv :: Word8 -> Id
     conv chr
-      -- the special character, standing in for space.
-      | chr == 32 = 220
+      -- FIXME: 10 is known to be a carriage return, 32 is space.. the rest is a guess.
+      | chr > 9 && chr < 34 = fromIntegral $ chr + 198
       -- ASCII 34-128 -> Int 1-94
       | (chr > 33) && (chr < (94 + 33)) = fromIntegral $ chr - 33
       | otherwise = error $ "whoops: " <> show chr <> "\n"
+
+-- perform any changes we need before presenting this to the user. basically, the opposite of 'initSeqGP2'
+respaceGPT2 :: BSS.ByteString -> BSS.ByteString
+respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
+  where
+    respaceGPT2' [] = []
+    respaceGPT2' [x] = [x]
+    respaceGPT2' (x:y:xs)
+      -- a special character representing a single space, for GPT2, it's 'Ġ', UTF8 character U+120
+      | x == 196 && y == 160 = 32 : respaceGPT2' xs
+        -- regular characters.
+      | otherwise = x : respaceGPT2' (y:xs)
 
 -- | Read a set of Merges from a TXT file.
 -- Expects:
@@ -461,6 +469,11 @@ run rawArgs =
                 <> show (example_2_5_2 example_2_5_Seq_Given merges dictionary) <> "\n"
                 <> show (example_2_5_2 example_2_5_Seq_Found merges dictionary) <> "\n"
                 <> show (example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
+      Example (2,6) -> do
+        input <- readInput
+        dictionary <- readDictionary
+        merges <- readMerges
+        putStrLn $ show (example_2_6_1 input merges dictionary) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
