@@ -281,7 +281,7 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
 
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
-  | mergeDictionary == jsonDictionary = BPEB.encode initVocabGPT2 (mergesFromTXT merges) initSeqGPT2 (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = BPER.encode initVocabGPT2 initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
@@ -304,7 +304,7 @@ example_2_5_2 seq merges dictionary
     jsonDictionary = dictionaryFromJSON dictionary
 
 example_2_6_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Int
-example_2_6_1 text merges dictionary = length (BPER.encode (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+example_2_6_1 text merges dictionary = length (BPEB.encode initSeqGPT2 (mergesFromTXT merges) (BSU.fromString text))
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -343,7 +343,7 @@ initSeqGPT2 text = conv <$> BSS.unpack text
     conv :: Word8 -> Id
     conv chr
       -- FIXME: 10 is known to be a carriage return, 32 is space.. the rest is a guess.
-      | chr > 9 && chr < 34 = fromIntegral $ chr + 198
+      | chr > 9 && chr < 34 = fromIntegral $ chr + 188
       -- ASCII 34-128 -> Int 1-94
       | (chr > 33) && (chr < (94 + 33)) = fromIntegral $ chr - 33
       | otherwise = error $ "whoops: " <> show chr <> "\n"
@@ -466,9 +466,9 @@ run rawArgs =
         dictionary <- readDictionary
         merges <- readMerges
         putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary)) <> "\n"
-                <> show (example_2_5_2 example_2_5_Seq_Given merges dictionary) <> "\n"
-                <> show (example_2_5_2 example_2_5_Seq_Found merges dictionary) <> "\n"
-                <> show (example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
+                <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq_Given merges dictionary) <> "\n"
+                <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq_Found merges dictionary) <> "\n"
+                <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
       Example (2,6) -> do
         input <- readInput
         dictionary <- readDictionary
@@ -480,6 +480,7 @@ run rawArgs =
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
     example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
+    -- our tokenizer is not handling <|endoftext|> properly. it's recognising it as 1279,91,437,1659,5239,91,29, rather than 220,50256.
     example_2_5_Seq_Found, example_2_5_Seq_Given :: Seq
     example_2_5_Seq_Found = [15496,11,466,345,588,8887,30
                             ,1279,91,437,1659,5239,91,29
