@@ -355,9 +355,11 @@ respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
     respaceGPT2' [] = []
     respaceGPT2' [x] = [x]
     respaceGPT2' (x:y:xs)
-      -- a special character representing a single space, for GPT2, it's 'Ġ', UTF8 character U+120
-      | x == 196 && y == 160 = 32 : respaceGPT2' xs
-        -- regular characters.
+      -- 33(?) special characters, starting at ascii 10, and ending at 33.
+      -- Yes, we are converting them to unicode escape sequences, Per defaultBacov above.
+      -- For GPT2, a special character representing a single space is translated to 'Ġ', UTF8 character U+120 .
+      | x == 196 && y > (9 + 128) && y < (34 + 128) = y - 128 : respaceGPT2' xs
+      -- Regular characters. No, I do not know why we don't have to shift them like we do in initSeqGPT2.
       | otherwise = x : respaceGPT2' (y:xs)
 
 -- | Read a set of Merges from a TXT file.
