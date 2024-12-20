@@ -281,7 +281,7 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
 
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
-  | mergeDictionary == jsonDictionary = BPER.encode initVocabGPT2 initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
