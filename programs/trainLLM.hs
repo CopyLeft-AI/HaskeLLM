@@ -300,6 +300,21 @@ example_2_6_2 text merges extensions = take 4 $ drop 50 (encodeExtensions extens
 example_2_6_3 :: [Char] -> BSL.ByteString -> Extensions -> Seq
 example_2_6_3 text merges extensions = take 4 $ drop 51 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
 
+example_2_6_4 :: [Char] -> BSL.ByteString -> Extensions -> [Char]
+example_2_6_4 text merges extensions =  rotateShow $ take 5 $ drop 50 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+  where
+    rotateShow [] = error "too few."
+    rotateShow [_] = error "too few."
+    rotateShow (xs) = rotateShow' [] xs
+    rotateShow' [] [] = []
+    rotateShow' [] [_] = []
+    rotateShow' [] [x,y] = show [x] <> " ----> " <> show y <> "\n"
+    rotateShow' [] (x:y:xs) = show [x] <> " ----> " <> show y <> "\n" <> rotateShow' [x] (y:xs)
+    rotateShow' _ [] = []
+    rotateShow' _ [_] = []
+    rotateShow' a [x,y] = show (a <> [x]) <> " ----> " <> show y <> "\n"
+    rotateShow' a (x:y:xs) = show (a <> [x]) <> " ----> " <> show y <> "\n" <> rotateShow' (a <> [x]) (y:xs)
+
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
 dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
@@ -492,7 +507,8 @@ run rawArgs =
         merges <- readMerges
         putStrLn $ show (example_2_6_1 input merges extensionsGPT2) <> "\n"
                 <> "x: " <> show (example_2_6_2 input merges extensionsGPT2) <> "\n"
-                <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n"
+                <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n" <> "\n"
+                <> example_2_6_4 input merges extensionsGPT2 <> "\n" <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
