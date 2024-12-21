@@ -30,9 +30,7 @@ import Data.Aeson.Key (Key, toText)
 
 import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
 
-import qualified BPE.Basic as BPEB (decode)
-
-import qualified BPE.Regex as BPER (encode)
+import qualified BPE.Regex as BPER (decode, encode)
 
 import BPE.Regex (gpt2pattern)
 
@@ -284,7 +282,7 @@ example_2_5_1 text merges dictionary
 
 example_2_5_2 :: Seq -> BSL.ByteString -> BSL.ByteString -> BSS.ByteString
 example_2_5_2 seq merges dictionary
-  | mergeDictionary == jsonDictionary = respaceGPT2 $ BPEB.decode jsonDictionary seq
+  | mergeDictionary == jsonDictionary = respaceGPT2 $ BPER.decode jsonDictionary mempty seq
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
@@ -295,6 +293,12 @@ example_2_5_2 seq merges dictionary
 
 example_2_6_1 :: [Char] -> BSL.ByteString -> Extensions -> Int
 example_2_6_1 text merges extensions = length (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+
+example_2_6_2 :: [Char] -> BSL.ByteString -> Extensions -> Seq
+example_2_6_2 text merges extensions = take 4 $ drop 50 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+
+example_2_6_3 :: [Char] -> BSL.ByteString -> Extensions -> Seq
+example_2_6_3 text merges extensions = take 4 $ drop 51 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -480,13 +484,15 @@ run rawArgs =
       Example (2,5) -> do
         dictionary <- readDictionary
         merges <- readMerges
-        putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary)) <> "\n"
+        putStrLn $ show (example_2_5_1 example_2_5_String merges dictionary) <> "\n"
                 <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq merges dictionary) <> "\n"
                 <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
       Example (2,6) -> do
         input <- readInput
         merges <- readMerges
         putStrLn $ show (example_2_6_1 input merges extensionsGPT2) <> "\n"
+                <> "x: " <> show (example_2_6_2 input merges extensionsGPT2) <> "\n"
+                <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
