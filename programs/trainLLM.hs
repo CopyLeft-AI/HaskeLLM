@@ -56,6 +56,8 @@ import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList
 
 import Data.List ((++), drop, elem, foldr1, head, sort)
 
+import Data.List.Extra (replace)
+
 import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
@@ -281,7 +283,7 @@ example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
 
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
-  | mergeDictionary == jsonDictionary = BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = replace [1279,91,437,1659,5239,91,29] [220,50256] $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
