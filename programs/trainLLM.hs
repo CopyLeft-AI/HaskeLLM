@@ -246,50 +246,39 @@ example_2_2 text = DHSI.fromList $ take 51 $ DHSI.toRevList $ vocabOfText text
 -- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
 -- This is the encoding one.
 example_2_3_1 :: [Char] -> [Char] -> [Int]
-example_2_3_1 text string = tokensFromString vocab string
-  where
-    vocab = vocabOfText text
+example_2_3_1 text string = tokensFromString (vocabOfText text) string
 
 -- | For example 2.3, they use it twice, we just implement this as two functions: one for encoding, and one for decoding.
 -- This is the decoding one.
 example_2_3_2 :: [Char] -> [Int] -> [Char]
-example_2_3_2 text tokens = stringFromTokens vocab tokens
-  where
-    vocab = vocabOfText text
+example_2_3_2 text tokens = stringFromTokens (vocabOfText text) tokens
 
 -- | Example 2.4 has several sub examples. This one prints the last 5 tokens in our extended vocabulary.
 example_2_4_1 :: [Char] -> Vocab
-example_2_4_1 text = DHSI.fromList $ drop (vocabLength vocab - 3) $ DHSI.toList $ extendedVocab vocab
+example_2_4_1 text = DHSI.fromList $ drop (length vocab - 5) $ sort $ DHSI.toList vocab
   where
-    vocab = vocabOfText text
-    vocabLength v = length v
-    extendedVocab :: Vocab -> InsOrdHashMap Int BSS.ByteString
-    extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
+    vocab = extendVocabGPT2Unk $ vocabOfText text
 
 -- Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
 example_2_4_2 :: [Char] -> [Char] -> [Int]
-example_2_4_2 text string = getTokensFromString (extendedVocab vocab) (Just $ vocabLength (extendedVocab vocab) - 1) string
+example_2_4_2 text string = getTokensFromString vocab (Just $ length vocab - 1) string
   where
-    vocab = vocabOfText text
-    vocabLength v = length v
-    extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
+    vocab = extendVocabGPT2Unk $ vocabOfText text
 
 -- Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
 example_2_4_3 :: [Char] -> [Int] -> [Char]
-example_2_4_3 text tokens = stringFromTokens (extendedVocab vocab) tokens
+example_2_4_3 text tokens = stringFromTokens vocab tokens
   where
-    vocab = vocabOfText text
-    extendedVocab v = insert (size v) "<|endoftext|>" (insert (size v+1) "<|unk|>" v)
+    vocab = extendVocabGPT2Unk $ vocabOfText text
 
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
-  | mergeDictionary == jsonDictionary = replace [1279,91,437,1659,5239,91,29] [220,50256] $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+  | mergeDictionary == jsonDictionary = encodeExtensionsGPT2 $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
     -- a dictionary from a merge file.
-    mergeDictionary = extendedVocab $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
-    extendedVocab v = insert (size v) "<|endoftext|>" v
+    mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
@@ -300,13 +289,12 @@ example_2_5_2 seq merges dictionary
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
     -- a dictionary from a merge file.
-    mergeDictionary = extendedVocab $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
-    extendedVocab v = insert (size v) "<|endoftext|>" v
+    mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
-example_2_6_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Int
-example_2_6_1 text merges dictionary = length (BPEB.encode initSeqGPT2 (mergesFromTXT merges) (BSU.fromString text))
+example_2_6_1 :: [Char] -> BSL.ByteString -> Extensions -> Int
+example_2_6_1 text merges extensions = length (encodeExtensions extensions $ BPEB.encode initSeqGPT2 (mergesFromTXT merges) (BSU.fromString text))
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -363,6 +351,29 @@ respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
       | x == 196 && y > (9 + 128) && y < (34 + 128) = y - 128 : respaceGPT2' xs
       -- Regular characters. No, I do not know why we don't have to shift them like we do in initSeqGPT2.
       | otherwise = x : respaceGPT2' (y:xs)
+
+type Extensions = [(Seq, Seq)]
+
+-- data for a set of filters, to add additional tokens to our encoded text.
+-- note that since these are applied after the fact.. that we will end up with many permutations for one token.
+extensionsGPT2 :: Extensions
+extensionsGPT2 = [([1279,91,437,1659,5239,91,29],[220,50256])] -- " <|endoftext|>"
+
+encodeExtensions :: Extensions -> Seq -> Seq
+encodeExtensions extensions inSeq = case extensions of
+                                      [] -> inSeq
+                                      [(find,replaceWith)] -> replace find replaceWith inSeq
+                                      ((find,replaceWith):xs) -> replace find replaceWith $ encodeExtensions xs inSeq
+
+-- additional filters, to handle encoding extensions.
+encodeExtensionsGPT2 :: Seq -> Seq
+encodeExtensionsGPT2 inSeq = encodeExtensions extensionsGPT2 inSeq
+
+extendVocabGPT2 :: Vocab -> InsOrdHashMap Int BSS.ByteString
+extendVocabGPT2 v = insert (size v) "<|endoftext|>" v
+
+extendVocabGPT2Unk :: Vocab -> InsOrdHashMap Int BSS.ByteString
+extendVocabGPT2Unk v = insert (size v) "<|endoftext|>" (insert (size v +1) "<|unk|>" v)
 
 -- | Read a set of Merges from a TXT file.
 -- Expects:
@@ -475,9 +486,8 @@ run rawArgs =
                 <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
       Example (2,6) -> do
         input <- readInput
-        dictionary <- readDictionary
         merges <- readMerges
-        putStrLn $ show (example_2_6_1 input merges dictionary) <> "\n"
+        putStrLn $ show (example_2_6_1 input merges extensionsGPT2) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
