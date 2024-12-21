@@ -30,7 +30,7 @@ import Data.Aeson.Key (Key, toText)
 
 import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
 
-import qualified BPE.Basic as BPEB (decode, encode)
+import qualified BPE.Basic as BPEB (decode)
 
 import qualified BPE.Regex as BPER (encode)
 
@@ -294,7 +294,7 @@ example_2_5_2 seq merges dictionary
     jsonDictionary = dictionaryFromJSON dictionary
 
 example_2_6_1 :: [Char] -> BSL.ByteString -> Extensions -> Int
-example_2_6_1 text merges extensions = length (encodeExtensions extensions $ BPEB.encode initSeqGPT2 (mergesFromTXT merges) (BSU.fromString text))
+example_2_6_1 text merges extensions = length (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -481,8 +481,7 @@ run rawArgs =
         dictionary <- readDictionary
         merges <- readMerges
         putStrLn $ (show (example_2_5_1 example_2_5_String merges dictionary)) <> "\n"
-                <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq_Given merges dictionary) <> "\n"
-                <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq_Found merges dictionary) <> "\n"
+                <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq merges dictionary) <> "\n"
                 <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
       Example (2,6) -> do
         input <- readInput
@@ -495,13 +494,10 @@ run rawArgs =
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
     example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
     -- our tokenizer is not handling <|endoftext|> properly. it's recognising it as 1279,91,437,1659,5239,91,29, rather than 220,50256.
-    example_2_5_Seq_Found, example_2_5_Seq_Given :: Seq
-    example_2_5_Seq_Found = [15496,11,466,345,588,8887,30
-                            ,1279,91,437,1659,5239,91,29
-                            ,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
-    example_2_5_Seq_Given = [15496,11,466,345,588,8887,30,
-                             220, 50256
-                            ,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
+    example_2_5_Seq :: Seq
+    example_2_5_Seq = [15496,11,466,345,588,8887,30,
+                       220, 50256
+                      ,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
 
 -- | The entry point. Use the option parser then run the trainer.
 main :: IO ()
