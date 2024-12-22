@@ -308,12 +308,10 @@ example_2_6_4 text merges extensions =  rotateShow $ take 5 $ drop 50 (encodeExt
     rotateShow [] = error "too few."
     rotateShow [_] = error "too few."
     rotateShow (xs) = rotateShow' [] xs
-    rotateShow' [] [] = ""
-    rotateShow' [] [_] = ""
-    rotateShow' [] [x,y] = show [x] <> " ----> " <> show y <> "\n"
-    rotateShow' [] (x:y:xs) = show [x] <> " ----> " <> show y <> "\n" <> rotateShow' [x] (y:xs)
     rotateShow' _ [] = ""
     rotateShow' _ [_] = ""
+    rotateShow' [] [x,y] = show [x] <> " ----> " <> show y <> "\n"
+    rotateShow' [] (x:y:xs) = show [x] <> " ----> " <> show y <> "\n" <> rotateShow' [x] (y:xs)
     rotateShow' a [x,y] = show (a <> [x]) <> " ----> " <> show y <> "\n"
     rotateShow' a (x:y:xs) = show (a <> [x]) <> " ----> " <> show y <> "\n" <> rotateShow' (a <> [x]) (y:xs)
 
