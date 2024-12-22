@@ -38,6 +38,8 @@ import qualified Data.Aeson.KeyMap as DAKM (toList)
 
 import qualified Data.ByteString as BSS (ByteString, pack, singleton, unpack)
 
+import qualified Data.ByteString.Char8 as BSC (unpack)
+
 import qualified Data.ByteString.Lazy as BSL (ByteString, fromStrict, readFile, toStrict)
 
 import qualified Data.ByteString.Lazy.UTF8 as BSLU (break, drop, lines)
@@ -306,14 +308,34 @@ example_2_6_4 text merges extensions =  rotateShow $ take 5 $ drop 50 (encodeExt
     rotateShow [] = error "too few."
     rotateShow [_] = error "too few."
     rotateShow (xs) = rotateShow' [] xs
-    rotateShow' [] [] = []
-    rotateShow' [] [_] = []
+    rotateShow' [] [] = ""
+    rotateShow' [] [_] = ""
     rotateShow' [] [x,y] = show [x] <> " ----> " <> show y <> "\n"
     rotateShow' [] (x:y:xs) = show [x] <> " ----> " <> show y <> "\n" <> rotateShow' [x] (y:xs)
-    rotateShow' _ [] = []
-    rotateShow' _ [_] = []
+    rotateShow' _ [] = ""
+    rotateShow' _ [_] = ""
     rotateShow' a [x,y] = show (a <> [x]) <> " ----> " <> show y <> "\n"
     rotateShow' a (x:y:xs) = show (a <> [x]) <> " ----> " <> show y <> "\n" <> rotateShow' (a <> [x]) (y:xs)
+
+example_2_6_5 :: [Char] -> BSL.ByteString -> Extensions -> [Char]
+example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 50 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+  where
+    rotateShow [] = error "too few."
+    rotateShow [_] = error "too few."
+    rotateShow (xs) = rotateShow' [] xs
+    rotateShow' _ [] = ""
+    rotateShow' _ [_] = ""
+    rotateShow' [] [x,y] = respaceGPT2 (BPER.decode mergeDictionary mempty [x]) <> " ----> "
+                        <> respaceGPT2 (BPER.decode mergeDictionary mempty [y]) <> "\n"
+    rotateShow' [] (x:y:xs) = respaceGPT2 (BPER.decode mergeDictionary mempty [x]) <> " ----> "
+                           <> respaceGPT2 (BPER.decode mergeDictionary mempty [y]) <> "\n" <> rotateShow' [x] (y:xs)
+    rotateShow' a [x,y] = respaceGPT2 (BPER.decode mergeDictionary mempty (a <> [x])) <> " ----> "
+                        <> respaceGPT2 (BPER.decode mergeDictionary mempty [y]) <> "\n"
+    rotateShow' a (x:y:xs) = respaceGPT2 (BPER.decode mergeDictionary mempty (a <> [x])) <> " ----> "
+                             <> respaceGPT2 (BPER.decode mergeDictionary mempty [y]) <> "\n" <> rotateShow' (a <> [x]) (y:xs)
+    -- a dictionary from a merge file.
+    mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
+
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -373,25 +395,30 @@ respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
 
 type Extensions = [(Seq, Seq)]
 
--- data for a set of filters, to add additional tokens to our encoded text.
--- note that since these are applied after the fact.. that we will end up with many permutations for one token.
-extensionsGPT2 :: Extensions
-extensionsGPT2 = [([1279,91,437,1659,5239,91,29],[220,50256])] -- " <|endoftext|>"
-
+-- after-the-fact, accept a fully encoded sequence, and a list of extensions, and apply those extensions.
+-- FIXME: should be done during the fact, after the first Seq?
 encodeExtensions :: Extensions -> Seq -> Seq
 encodeExtensions extensions inSeq = case extensions of
                                       [] -> inSeq
                                       [(find,replaceWith)] -> replace find replaceWith inSeq
                                       ((find,replaceWith):xs) -> replace find replaceWith $ encodeExtensions xs inSeq
 
+-- data for a set of filters, to add additional tokens to our encoded text.
+-- note that since these are applied after the fact.. that we will end up with many permutations for one token.
+extensionsGPT2 :: Extensions
+extensionsGPT2 = [([1279,91,437,1659,5239,91,29],[220,50256])] -- " <|endoftext|>"
+
 -- additional filters, to handle encoding extensions.
 encodeExtensionsGPT2 :: Seq -> Seq
 encodeExtensionsGPT2 inSeq = encodeExtensions extensionsGPT2 inSeq
 
-extendVocabGPT2 :: Vocab -> InsOrdHashMap Int BSS.ByteString
+-- add the extra vocab that is in the json, but not the merges. GPT2 vocabulary version.
+extendVocabGPT2 :: Vocab -> Vocab
 extendVocabGPT2 v = insert (size v) "<|endoftext|>" v
 
-extendVocabGPT2Unk :: Vocab -> InsOrdHashMap Int BSS.ByteString
+
+-- add the extra vocab that is in the json, but not the merges. also, add a token for encoding unknown values. GPT2 vocabulary version.
+extendVocabGPT2Unk :: Vocab -> Vocab
 extendVocabGPT2Unk v = insert (size v) "<|endoftext|>" (insert (size v +1) "<|unk|>" v)
 
 -- | Read a set of Merges from a TXT file.
@@ -509,6 +536,7 @@ run rawArgs =
                 <> "x: " <> show (example_2_6_2 input merges extensionsGPT2) <> "\n"
                 <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n" <> "\n"
                 <> example_2_6_4 input merges extensionsGPT2 <> "\n" <> "\n"
+                <> example_2_6_5 input merges extensionsGPT2 <> "\n" <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
