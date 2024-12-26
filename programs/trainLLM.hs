@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Int, IO, Maybe(Just, Nothing), String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Eq, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -58,7 +58,7 @@ import Data.List ((++), drop, elem, foldr1, head, sort)
 
 import Data.List.Extra (replace)
 
-import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
+import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
 
@@ -335,6 +335,27 @@ example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 5
     mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
 
 
+data Tensor = Tensor [Seq]
+  deriving (Eq, Show)
+
+example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> [Tensor]
+example_2_6_6 text merges extensions = [
+                                        Tensor [take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                       ,Tensor [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                       ]
+
+example_2_6_7 :: [Char] -> BSL.ByteString -> Extensions -> [Tensor]
+example_2_6_7 text merges extensions = [
+                                        Tensor [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                       ,Tensor [take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                       ]
+
+example_2_6_8 :: [Char] -> BSL.ByteString -> Extensions -> [Tensor]
+example_2_6_8 text merges extensions = [
+                                        Tensor $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ,Tensor $ take 8 $ chunksOf 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ]
+
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
 dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
@@ -535,6 +556,9 @@ run rawArgs =
                 <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n" <> "\n"
                 <> example_2_6_4 input merges extensionsGPT2 <> "\n" <> "\n"
                 <> example_2_6_5 input merges extensionsGPT2 <> "\n" <> "\n"
+                <> show (example_2_6_6 input merges extensionsGPT2) <> "\n" <> "\n"
+                <> show (example_2_6_7 input merges extensionsGPT2) <> "\n" <> "\n"
+                <> show (example_2_6_8 input merges extensionsGPT2) <> "\n" <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
