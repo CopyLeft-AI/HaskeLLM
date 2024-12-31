@@ -527,7 +527,7 @@ run rawArgs =
       Example (2,1) -> do
         input <- readInput
         case beVerbose of
-          True -> putStrLn $ "running listing 2.1 with input:\n<input>\n" <> input <> "<\\input>\n<result>" <> example_2_1 input <> "<\result>\n"
+          True -> putStrLn $ "running listing 2.1 with input:\n<input>\n" <> input <> "</input>\n<result>" <> example_2_1 input <> "</result>\n"
           _ -> putStrLn $ example_2_1 input
       Example (2,2) -> do
         input <- readInput
