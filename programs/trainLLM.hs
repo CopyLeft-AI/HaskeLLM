@@ -116,7 +116,7 @@ trainOpts =
     (    short 'i'
       <> long "infile"
       <> metavar "INPUTFILE"
-      <> help "load an ASCII text file"
+      <> help "load an ASCII text file for tokenization"
     )
   )
   <*> optional (
