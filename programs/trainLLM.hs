@@ -20,11 +20,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Eq, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
-import Data.Aeson (Value(Number), FromJSON(parseJSON), eitherDecode, withObject)
+import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), eitherDecode, withObject)
 
 import Data.Aeson.Key (Key, toText)
 
@@ -62,13 +62,17 @@ import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneO
 
 import Data.List.Unique (sortUniq)
 
-import Data.Scientific (toBoundedInteger)
+import Data.Scientific (toBoundedInteger, toRealFloat)
 
 import Data.Text.Encoding (encodeUtf8)
 
+import Data.Vector (Vector)
+
+import qualified Data.Vector as DV (toList)
+
 import Data.Word (Word8)
 
-import Options.Applicative (Parser, ReadM, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
+import Options.Applicative (Parser, ReadM, auto, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
 
 data Example =
   Example (Int, Int)
@@ -105,6 +109,8 @@ data TrainRootOpts =
     , dictionaryOpt :: Maybe String
     , mergesOpt :: Maybe String
     , exampleOpt :: Example
+    , embeddingDimensionsOpt :: Maybe Int
+    , tokenEmbeddingsOpt :: Maybe String
     , verboseFlag :: Maybe Bool
     }
 
@@ -141,6 +147,22 @@ trainOpts =
       <> short 'e'
       <> metavar "EXAMPLE"
       <> help "which example to run"
+    )
+  )
+  <*> optional (
+  option auto
+    (    long "embeddingDimensions"
+      <> short 'c'
+      <> help "the number of dimensions each embedding gets"
+      <> metavar "DIMENSIONS"
+    ) :: Parser Int
+  )
+  <*> optional (
+  strOption
+    (    short 't'
+      <> long "tokenEmbeddings"
+      <> metavar "TOKENEMBEDDINGS"
+      <> help "load a JSON formatted list of token embeddings"
     )
   )
   <*> optional (
@@ -335,26 +357,72 @@ example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 5
     mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
 
 
-data Tensor = Tensor [Seq]
+data TensorI = TensorI [Seq]
   deriving (Eq, Show)
 
-example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> [Tensor]
+example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
 example_2_6_6 text merges extensions = [
-                                        Tensor [take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
-                                       ,Tensor [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                        TensorI [take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                       ,TensorI [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
                                        ]
 
-example_2_6_7 :: [Char] -> BSL.ByteString -> Extensions -> [Tensor]
+example_2_6_7 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
 example_2_6_7 text merges extensions = [
-                                        Tensor [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
-                                       ,Tensor [take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                        TensorI [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+                                       ,TensorI [take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
                                        ]
 
-example_2_6_8 :: [Char] -> BSL.ByteString -> Extensions -> [Tensor]
+example_2_6_8 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
 example_2_6_8 text merges extensions = [
-                                        Tensor $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ,Tensor $ take 8 $ chunksOf 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                        TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ,TensorI $ take 8 $ chunksOf 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
+
+data HyperParams =
+  HyperParams
+    {
+      embeddingDim :: Int -- how many dimensions our embeddings will be.
+    }
+  deriving Show
+
+data TensorF = TensorF [[Float]]
+  deriving (Eq, Show)
+
+-- We're getting a bit creative past this point; first, perform serialization, since there is no way we're getting our random seed to line up.
+-- this one is "read from disk/input, display"
+example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> [TensorF]
+example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings = error $ show tokenEmbeddings <> "\n"
+--                                                                                   <> show (length tokenEmbeddings) <> "\n"
+  where
+    tokenEmbeddings = embeddingsFromJSON rawTokenEmbeddings
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
+  deriving (Show)
+
+findEmbeddings :: [(Key, Value)] -> Embeddings
+findEmbeddings maybeEmbeddings = Embeddings embeddings
+  where
+    embeddings = embeddings' maybeEmbeddings empty
+    embeddings' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString [Float] -> InsOrdHashMap BSS.ByteString [Float]
+    embeddings' [] myEmbeddings = myEmbeddings
+    embeddings' [(k,v)] myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) myEmbeddings
+    embeddings' ((k,v):xs) myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) (embeddings' xs myEmbeddings)
+    numbersFromValue :: Value -> [Float]
+    numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
+    numbersFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
+
+instance FromJSON Embeddings where
+  parseJSON = withObject "Embeddings" (\v -> pure $ findEmbeddings $ DAKM.toList v)
+
+-- | Read a dictionary from a JSON formatted map.
+embeddingsFromJSON :: BSL.ByteString -> TensorF
+embeddingsFromJSON json = error $ show rawEmbeddings
+  where
+    rawEmbeddings = case eitherDecode json :: Either String Embeddings of
+                      Left err -> error $ "parse error when reading dictionary:\n" <> err <> "\n" <> show json <> "\n"
+                      Right d -> d
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -519,9 +587,21 @@ run rawArgs =
                  Nothing -> error "This example requires you to pass in your own merges file, in text format."
                  Just inFile -> BSL.readFile inFile
       return input
+    readEmbeddings :: IO BSL.ByteString
+    readEmbeddings = do
+      input <- case tokenEmbeddingsOpt rawArgs of
+                 Nothing -> error "This example requires you to pass in a set of token embeddings, in JSON format."
+                 Just inFile -> BSL.readFile inFile
+      return input
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
+    hyperParams :: HyperParams
+    hyperParams = case embeddingDimensionsOpt rawArgs of
+                    Nothing -> error "This example requires you to specify a number of dimensions each embedding recieves."
+                    Just a -> if a < 1
+                              then error "You must specify a positive number of dimentions for your embeddings."
+                              else HyperParams a
   in
     case exampleOpt rawArgs of
       Example (2,1) -> do
@@ -559,6 +639,12 @@ run rawArgs =
                 <> show (example_2_6_6 input merges extensionsGPT2) <> "\n" <> "\n"
                 <> show (example_2_6_7 input merges extensionsGPT2) <> "\n" <> "\n"
                 <> show (example_2_6_8 input merges extensionsGPT2) <> "\n" <> "\n"
+      Example (2,7) -> do
+        -- input <- readInput
+        dictionary <- readDictionary
+        embeddings <- readEmbeddings
+        putStrLn $ show hyperParams <> "\n"
+                <> show (example_2_7_1 hyperParams dictionary embeddings) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
