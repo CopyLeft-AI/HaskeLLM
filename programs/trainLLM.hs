@@ -46,6 +46,8 @@ import qualified Data.ByteString.Lazy.UTF8 as BSLU (break, drop, lines)
 
 import qualified Data.ByteString.UTF8 as BSU (toString, fromString)
 
+import Data.ByteString.Conversion (toByteString)
+
 import Data.Char (digitToInt, isDigit, isHexDigit)
 
 import Data.Either (Either (Left, Right), lefts, rights)
@@ -62,11 +64,11 @@ import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneO
 
 import Data.List.Unique (sortUniq)
 
+import Data.Maybe (fromMaybe)
+
 import Data.Scientific (toBoundedInteger, toRealFloat)
 
 import Data.Text.Encoding (encodeUtf8)
-
-import Data.Vector (Vector)
 
 import qualified Data.Vector as DV (toList)
 
@@ -388,12 +390,15 @@ data HyperParams =
 data TensorF = TensorF [[Float]]
   deriving (Eq, Show)
 
--- We're getting a bit creative past this point; first, perform serialization, since there is no way we're getting our random seed to line up.
+-- We're getting a bit creative in this section; first, perform serialization, since there is no way we're getting our random seed to line up.
 -- this one is "read from disk/input, display"
-example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> [TensorF]
-example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings = error $ show tokenEmbeddings <> "\n"
---                                                                                   <> show (length tokenEmbeddings) <> "\n"
+example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> TensorF
+example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
+  | length jsonDictionary == tokenEmbeddingsLength tokenEmbeddings = tokenEmbeddings
+  | otherwise = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (tokenEmbeddingsLength tokenEmbeddings) <> "\n"
   where
+    tokenEmbeddingsLength :: TensorF -> Int
+    tokenEmbeddingsLength (TensorF rawEmbeddings) = length rawEmbeddings
     tokenEmbeddings = embeddingsFromJSON rawTokenEmbeddings
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
@@ -416,13 +421,15 @@ findEmbeddings maybeEmbeddings = Embeddings embeddings
 instance FromJSON Embeddings where
   parseJSON = withObject "Embeddings" (\v -> pure $ findEmbeddings $ DAKM.toList v)
 
--- | Read a dictionary from a JSON formatted map.
+-- | Read a set of embeddings from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your embeddings dimensions.
 embeddingsFromJSON :: BSL.ByteString -> TensorF
-embeddingsFromJSON json = error $ show rawEmbeddings
+embeddingsFromJSON json = embeddingsToTensorF rawEmbeddings
   where
     rawEmbeddings = case eitherDecode json :: Either String Embeddings of
-                      Left err -> error $ "parse error when reading dictionary:\n" <> err <> "\n" <> show json <> "\n"
+                      Left err -> error $ "parse error when reading embeddings:\n" <> err <> "\n" <> show json <> "\n"
                       Right d -> d
+    embeddingsToTensorF :: Embeddings -> TensorF
+    embeddingsToTensorF (Embeddings rawEmbeddings) = TensorF $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawEmbeddings) <$> [0,1..size rawEmbeddings-1]
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
