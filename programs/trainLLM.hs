@@ -417,9 +417,11 @@ example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
+-- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
   deriving (Show)
 
+-- | Our parser for an embeddings file.
 instance FromJSON Embeddings where
   parseJSON = withObject "Embeddings" (\v -> pure $ findEmbeddings $ DAKM.toList v)
     where
@@ -456,7 +458,7 @@ dictionaryFromJSON json = case eitherDecode json :: Either String Bacov of
                                   where
                                     swap (a,b) = (b,a)
 
--- The default starting vocabulary, taken from the first 256 tokens of gpt2.
+-- | The default starting vocabulary, taken from the first 256 tokens of gpt2.
 initVocabGPT2 :: Vocab
 initVocabGPT2 = flip defaultBacov
   where
@@ -465,7 +467,7 @@ initVocabGPT2 = flip defaultBacov
       where
         swap (a,b) = (b,a)
 
--- The default starting vocabulary, taken from the first 256 tokens of gpt2.
+-- | The default starting vocabulary, taken from the first 256 tokens of gpt2.
 -- An initial (reverse) vocabulary, consisting of....
 defaultBacov :: Bacov
 defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1..93]) -- the first 94 characters of ascii, after 33 control signals.
@@ -475,7 +477,7 @@ defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1.
                                      <> (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..251] )    -- UTF8 characters U+0100-U+013F
                                      <> (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..255] )    -- UTF8 characters U+0140-U+017F
 
--- convert an ascii string into a sequence of tokens in the initVocabGPT2 token space.
+-- | convert an ASCII string into a sequence of tokens in the initVocabGPT2 token space.
 initSeqGPT2 :: BSS.ByteString -> Seq
 initSeqGPT2 text = conv <$> BSS.unpack text
   where
@@ -487,7 +489,7 @@ initSeqGPT2 text = conv <$> BSS.unpack text
       | (chr > 33) && (chr < (94 + 33)) = fromIntegral $ chr - 33
       | otherwise = error $ "whoops: " <> show chr <> "\n"
 
--- perform any changes we need before presenting this to the user. basically, the opposite of 'initSeqGP2'
+-- | Perform any changes we need before presenting a string to the user. basically, the opposite of 'initSeqGP2'
 respaceGPT2 :: BSS.ByteString -> BSS.ByteString
 respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
   where
@@ -495,15 +497,16 @@ respaceGPT2 bs = BSS.pack $ respaceGPT2' (BSS.unpack bs)
     respaceGPT2' [x] = [x]
     respaceGPT2' (x:y:xs)
       -- 33(?) special characters, starting at ascii 10, and ending at 33.
-      -- Yes, we are converting them to unicode escape sequences, Per defaultBacov above.
+      -- Yes, we are converting them to unicode escape sequences, per defaultBacov above.
       -- For GPT2, a special character representing a single space is translated to 'Ġ', UTF8 character U+120 .
       | x == 196 && y > (9 + 128) && y < (34 + 128) = y - 128 : respaceGPT2' xs
       -- Regular characters. No, I do not know why we don't have to shift them like we do in initSeqGPT2.
       | otherwise = x : respaceGPT2' (y:xs)
 
+-- | A type, for expressing which sequences need to be swapped out after tokenization, to insert a new token into the stream.
 type Extensions = [(Seq, Seq)]
 
--- after-the-fact, accept a fully encoded sequence, and a list of extensions, and apply those extensions.
+-- | After-the-fact, accept a fully encoded sequence, and a list of extensions, and apply those extensions.
 -- FIXME: should be done during the fact, after the first Seq?
 encodeExtensions :: Extensions -> Seq -> Seq
 encodeExtensions extensions inSeq = case extensions of
@@ -511,21 +514,20 @@ encodeExtensions extensions inSeq = case extensions of
                                       [(find,replaceWith)] -> replace find replaceWith inSeq
                                       ((find,replaceWith):xs) -> replace find replaceWith $ encodeExtensions xs inSeq
 
--- data for a set of filters, to add additional tokens to our encoded text.
--- note that since these are applied after the fact.. that we will end up with many permutations for one token.
+-- | A set of filters, to add additional tokens to our encoded text.
+-- note: since these are applied after the fact.. that we will end up with many permutations for one token.
 extensionsGPT2 :: Extensions
 extensionsGPT2 = [([1279,91,437,1659,5239,91,29],[220,50256])] -- " <|endoftext|>"
 
--- additional filters, to handle encoding extensions.
+-- | Additional filters, to handle encoding extensions.
 encodeExtensionsGPT2 :: Seq -> Seq
 encodeExtensionsGPT2 inSeq = encodeExtensions extensionsGPT2 inSeq
 
--- add the extra vocab that is in the json, but not the merges. GPT2 vocabulary version.
+-- | Add the extra vocab that is in the JSON file, but not the merges TXT file. GPT2 vocabulary version.
 extendVocabGPT2 :: Vocab -> Vocab
 extendVocabGPT2 v = insert (size v) "<|endoftext|>" v
 
-
--- add the extra vocab that is in the json, but not the merges. also, add a token for encoding unknown values. GPT2 vocabulary version.
+-- | Add the extra vocab that is in the JSON file, but not the merges TXT file. Also, add a token for encoding unknown values. GPT2 vocabulary version.
 extendVocabGPT2Unk :: Vocab -> Vocab
 extendVocabGPT2Unk v = insert (size v) "<|endoftext|>" (insert (size v +1) "<|unk|>" v)
 
