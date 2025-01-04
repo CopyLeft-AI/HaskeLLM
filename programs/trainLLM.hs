@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -56,7 +56,7 @@ import Data.HashMap.Strict.InsOrd (InsOrdHashMap, empty, insert, lookup, size)
 
 import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList, union)
 
-import Data.List ((++), drop, elem, foldr1, head, sort)
+import Data.List ((++), any, drop, elem, foldr1, head, sort)
 
 import Data.List.Extra (replace)
 
@@ -394,9 +394,12 @@ data TensorF = TensorF [[Float]]
 -- this one is "read from disk/input, display"
 example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> TensorF
 example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
-  | length jsonDictionary == tokenEmbeddingsLength tokenEmbeddings = tokenEmbeddings
-  | otherwise = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (tokenEmbeddingsLength tokenEmbeddings) <> "\n"
+  | embeddingDimensions /= length (firstEmbedding tokenEmbeddings) = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nFirst Embedding: " <> show (firstEmbedding tokenEmbeddings) <> "\nDimensions expected: " <> show embeddingDimensions <> "\nFound dimensions: " <> show (length $ firstEmbedding tokenEmbeddings) <> "\n"
+  | length jsonDictionary /= tokenEmbeddingsLength tokenEmbeddings = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (tokenEmbeddingsLength tokenEmbeddings) <> "\n"
+  | any (\a -> length a /= length (firstEmbedding tokenEmbeddings)) ((\(TensorF xs) -> xs) tokenEmbeddings) = error "malformatted token input embedding file: not all of the embeddings have the same dimensionality?\n"
+  | otherwise = tokenEmbeddings
   where
+    firstEmbedding (TensorF rawTensorF) = head rawTensorF
     tokenEmbeddingsLength :: TensorF -> Int
     tokenEmbeddingsLength (TensorF rawEmbeddings) = length rawEmbeddings
     tokenEmbeddings = embeddingsFromJSON rawTokenEmbeddings
