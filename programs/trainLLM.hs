@@ -423,11 +423,11 @@ instance FromJSON Embeddings where
 
 -- | Read a set of embeddings from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your embeddings dimensions.
 embeddingsFromJSON :: BSL.ByteString -> TensorF
-embeddingsFromJSON json = embeddingsToTensorF rawEmbeddings
+embeddingsFromJSON json = embeddingsToTensorF embeddings
   where
-    rawEmbeddings = case eitherDecode json :: Either String Embeddings of
-                      Left err -> error $ "parse error when reading embeddings:\n" <> err <> "\n" <> show json <> "\n"
-                      Right d -> d
+    embeddings = case eitherDecode json :: Either String Embeddings of
+                   Left err -> error $ "parse error when reading embeddings:\n" <> err <> "\n" <> show json <> "\n"
+                   Right d -> d
     embeddingsToTensorF :: Embeddings -> TensorF
     embeddingsToTensorF (Embeddings rawEmbeddings) = TensorF $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawEmbeddings) <$> [0,1..size rawEmbeddings-1]
 
