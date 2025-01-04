@@ -404,7 +404,8 @@ data TensorF = TensorF [[Float]]
   deriving (Eq, Show)
 
 -- We're getting a bit creative in this section; first, perform serialization, since there is no way we're getting our random seed to line up.
--- this one is "read from disk/input, display"
+
+-- | Read from JSON and display a set of token embeddings.
 example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> TensorF
 example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
   | embeddingDimensions /= length (firstEmbedding tokenEmbeddings) = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nFirst Embedding: " <> show (firstEmbedding tokenEmbeddings) <> "\nDimensions expected: " <> show embeddingDimensions <> "\nFound dimensions: " <> show (length $ firstEmbedding tokenEmbeddings) <> "\n"
@@ -696,10 +697,10 @@ run rawArgs =
     example_2_3_String = "\"It's the last he painted, you know,\" Mrs. Gisburn said with pardonable pride."
     example_2_4_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of the palace."
     example_2_5_String = "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
-    -- our tokenizer is not handling <|endoftext|> properly. it's recognising it as 1279,91,437,1659,5239,91,29, rather than 220,50256.
+    -- our tokenizer was not handling <|endoftext|> properly. it was recognising it as 1279,91,437,1659,5239,91,29, rather than 220,50256.
     example_2_5_Seq :: Seq
     example_2_5_Seq = [15496,11,466,345,588,8887,30,
-                       220, 50256
+                       220, 50256 -- " <|endoftext|>~
                       ,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
 
 -- | The entry point. Use the option parser then run the trainer.
