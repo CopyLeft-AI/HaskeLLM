@@ -57,6 +57,7 @@ executable trainLLM
         extra,
         insert-ordered-containers,
         optparse-applicative -any,
+        random,
         scientific,
         split,
         text,

@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -56,7 +56,7 @@ import Data.HashMap.Strict.InsOrd (InsOrdHashMap, empty, insert, lookup, size)
 
 import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList, union)
 
-import Data.List ((++), any, drop, elem, foldr1, head, sort)
+import Data.List ((++), any, drop, elem, foldr1, head, unfoldr, sort)
 
 import Data.List.Extra (replace)
 
@@ -75,6 +75,8 @@ import qualified Data.Vector as DV (toList)
 import Data.Word (Word8)
 
 import Options.Applicative (Parser, ReadM, auto, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
+
+import System.Random (StdGen, mkStdGen, uniformR)
 
 -- | A type for encoding an example number.
 data Example =
@@ -416,6 +418,25 @@ example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
     tokenEmbeddings = embeddingsFromJSON rawTokenEmbeddings
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
+
+-- Second, construct a random set of embeddings, and display them.
+
+-- | Generate a random set of embeddings.
+example_2_7_2 :: HyperParams -> BSL.ByteString -> TensorF
+example_2_7_2 hyperParams dictionary
+  | otherwise = randomEmbeddings hyperParams jsonDictionary 
+  where
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+randomEmbeddings :: HyperParams -> Vocab -> TensorF
+randomEmbeddings (HyperParams embeddingDimensions) vocab
+  | otherwise = TensorF $ [randomEmbedding (mkStdGen v) | v <- [0,1..vocabLength]]
+    where
+      randomGenerator = mkStdGen 42
+      randomEmbedding :: StdGen -> [Float]
+      randomEmbedding = take embeddingDimensions . unfoldr (Just . uniformR (-3,3))
+      vocabLength = length vocab
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
