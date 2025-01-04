@@ -76,6 +76,7 @@ import Data.Word (Word8)
 
 import Options.Applicative (Parser, ReadM, auto, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
 
+-- | A type for encoding an example number.
 data Example =
   Example (Int, Int)
 
@@ -104,6 +105,7 @@ exampleReader = do
     findExample _ = error $ "complete failure to parse chapter and listing numbers.\n" <> exampleDescription
   return $ Example $ findExample v
 
+-- | Store the state of our command line arguments, after parsing.
 data TrainRootOpts =
   TrainRootOpts
     {
@@ -116,6 +118,7 @@ data TrainRootOpts =
     , verboseFlag :: Maybe Bool
     }
 
+-- | Our parser for our command line options.
 trainOpts :: Parser TrainRootOpts
 trainOpts =
   TrainRootOpts
@@ -175,40 +178,43 @@ trainOpts =
     )
   )
 
--- A Bacov, a Vocab with the key and value swapped. native form, when coming out of our file.
+-- | A Bacov, A Vocab with the key and value swapped. The native form, when coming out of a JSON file.
 data Bacov = Bacov (InsOrdHashMap BSS.ByteString Int)
 
-findBacov :: [(Key, Value)] -> Bacov
-findBacov maybeTokenMaps = Bacov tokenMaps
-  where
-    tokenMaps = tokenMaps' maybeTokenMaps empty
-    tokenMaps' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString Int -> InsOrdHashMap BSS.ByteString Int
-    tokenMaps' [] myTokenMaps = myTokenMaps
-    tokenMaps' [(k,v)] myTokenMaps = insert (encodeUtf8 $ toText k) (numberFromValue v) myTokenMaps
-    tokenMaps' ((k,v):xs) myTokenMaps = insert (encodeUtf8 $ toText k) (numberFromValue v) (tokenMaps' xs myTokenMaps)
-    numberFromValue :: Value -> Int
-    numberFromValue (Number v) = case toBoundedInteger v of
-                                   Nothing -> error $ "failed to find bounded integer for: " <> show v <> "\n"
-                                   Just a -> a
-    numberFromValue a = error $ "failed to parse " <> show a <> " as a Number."
-
+-- | Parse a vocabulary file.
 instance FromJSON Bacov where
   parseJSON = withObject "Bacov" (\v -> pure $ findBacov $ DAKM.toList v)
+    where
+      findBacov :: [(Key, Value)] -> Bacov
+      findBacov maybeTokenMaps = Bacov tokenMaps
+        where
+          tokenMaps = tokenMaps' maybeTokenMaps empty
+          tokenMaps' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString Int -> InsOrdHashMap BSS.ByteString Int
+          tokenMaps' [] myTokenMaps = myTokenMaps
+          tokenMaps' [(k,v)] myTokenMaps = insert (encodeUtf8 $ toText k) (numberFromValue v) myTokenMaps
+          tokenMaps' ((k,v):xs) myTokenMaps = insert (encodeUtf8 $ toText k) (numberFromValue v) (tokenMaps' xs myTokenMaps)
+          numberFromValue :: Value -> Int
+          numberFromValue (Number v) = case toBoundedInteger v of
+                                         Nothing -> error $ "failed to find bounded integer for: " <> show v <> "\n"
+                                         Just a -> a
+          numberFromValue a = error $ "failed to parse " <> show a <> " as a Number."
 
--- A typeclass for tokenization.
+-- | A typeclass for tokenization.
 class Tokenable s where
-  -- | Establish a vocabulary from a set of strings.
+  -- Establish a vocabulary from a set of strings.
   vocabOfText :: s -> Vocab
   -- Use a vocabulary to reconstruct tokens into a string.
   stringFromTokens :: Vocab -> [Int] -> s
   -- Use a vocabulary to tokenize an input.
   tokensFromString :: Vocab -> s -> [Int]
 
+-- | Our tokenization instance, for arrays of characters.
 instance Tokenable [Char] where
   vocabOfText s = vocabFromText s
   stringFromTokens v t = getStringFromTokens v t
   tokensFromString v s = getTokensFromString v Nothing s
 
+-- | Construct a Vocab from a given segment of text. Basically just tokenize | sort -u.
 vocabFromText :: [Char] -> Vocab
 vocabFromText input = tokenMaps
   where
@@ -245,7 +251,7 @@ getTokensFromString rawVocab unk string = findTokenOfString <$> splitString stri
     bacov = DHSI.fromList (swap <$> DHSI.toList rawVocab)
     swap (a,b) = (b,a)
 
-
+-- | Use a vocabulary to reconstruct a string from a list of tokens.
 getStringFromTokens :: Vocab -> [Int] -> [Char]
 getStringFromTokens rawVocab tokens = maybeIntersperse ' ' $ findStringOfToken <$> tokens
   where
@@ -261,9 +267,11 @@ getStringFromTokens rawVocab tokens = maybeIntersperse ' ' $ findStringOfToken <
                             Just s -> s
                             Nothing -> error $ "cannot find a string for token" <> (show t) <> "\n"
 
+-- | Count the number of characters in the input file.
 example_2_1 :: [Char] -> [Char]
 example_2_1 text = "Total number of character: " <> show (length text) <> "\n" <> take 99 text
 
+-- | Construct a Vocab for the first 51 tokens of the input file.
 example_2_2 :: [Char] -> Vocab
 example_2_2 text = DHSI.fromList $ take 51 $ DHSI.toRevList $ vocabOfText text
 
@@ -283,18 +291,19 @@ example_2_4_1 text = DHSI.fromList $ drop (length vocab - 5) $ sort $ DHSI.toLis
   where
     vocab = extendVocabGPT2Unk $ vocabOfText text
 
--- Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
+-- | Example 2.4 has several sub examples. This one gives us the tokens at the top of page 32.
 example_2_4_2 :: [Char] -> [Char] -> [Int]
 example_2_4_2 text string = getTokensFromString vocab (Just $ length vocab - 1) string
   where
     vocab = extendVocabGPT2Unk $ vocabOfText text
 
--- Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
+-- | Example 2.4 has several sub examples. This one gives us the reconstituted string on page 32.
 example_2_4_3 :: [Char] -> [Int] -> [Char]
 example_2_4_3 text tokens = stringFromTokens vocab tokens
   where
     vocab = extendVocabGPT2Unk $ vocabOfText text
 
+-- | Tokenize GPT2 style.
 example_2_5_1 :: [Char] -> BSL.ByteString -> BSL.ByteString -> Seq
 example_2_5_1 text merges dictionary
   | mergeDictionary == jsonDictionary = encodeExtensionsGPT2 $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
@@ -306,6 +315,7 @@ example_2_5_1 text merges dictionary
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
+-- | De-Tokenize GPT2 style.
 example_2_5_2 :: Seq -> BSL.ByteString -> BSL.ByteString -> BSS.ByteString
 example_2_5_2 seq merges dictionary
   | mergeDictionary == jsonDictionary = respaceGPT2 $ BPER.decode jsonDictionary mempty seq
@@ -380,6 +390,7 @@ example_2_6_8 text merges extensions = [
                                        ,TensorI $ take 8 $ chunksOf 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
+-- | Our Hyperparameters. The configuration settings of the model we are working with.
 data HyperParams =
   HyperParams
     {
@@ -409,20 +420,20 @@ example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
   deriving (Show)
 
-findEmbeddings :: [(Key, Value)] -> Embeddings
-findEmbeddings maybeEmbeddings = Embeddings embeddings
-  where
-    embeddings = embeddings' maybeEmbeddings empty
-    embeddings' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString [Float] -> InsOrdHashMap BSS.ByteString [Float]
-    embeddings' [] myEmbeddings = myEmbeddings
-    embeddings' [(k,v)] myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) myEmbeddings
-    embeddings' ((k,v):xs) myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) (embeddings' xs myEmbeddings)
-    numbersFromValue :: Value -> [Float]
-    numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
-    numbersFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
-
 instance FromJSON Embeddings where
   parseJSON = withObject "Embeddings" (\v -> pure $ findEmbeddings $ DAKM.toList v)
+    where
+      findEmbeddings :: [(Key, Value)] -> Embeddings
+      findEmbeddings maybeEmbeddings = Embeddings embeddings
+        where
+          embeddings = embeddings' maybeEmbeddings empty
+          embeddings' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString [Float] -> InsOrdHashMap BSS.ByteString [Float]
+          embeddings' [] myEmbeddings = myEmbeddings
+          embeddings' [(k,v)] myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) myEmbeddings
+          embeddings' ((k,v):xs) myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) (embeddings' xs myEmbeddings)
+          numbersFromValue :: Value -> [Float]
+          numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
+          numbersFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
 
 -- | Read a set of embeddings from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your embeddings dimensions.
 embeddingsFromJSON :: BSL.ByteString -> TensorF
