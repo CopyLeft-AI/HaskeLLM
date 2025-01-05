@@ -706,7 +706,7 @@ run rawArgs =
         putStrLn $ show hyperParams <> "\n"
                 <> show (example_2_7_1 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_2_7_2 hyperParams dictionary) <> "\n"
-                <> show (example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
+                <> BSC.unpack (BSL.toStrict $ example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
