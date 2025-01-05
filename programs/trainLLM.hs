@@ -442,6 +442,13 @@ example_2_8_1 text merges extensions = [
                                         TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
+-- gives you a list of TensorFs, where each tensorF coresponds to one Seq from TensorI.
+example_2_8_2 :: TensorF -> TensorI -> [TensorF]
+example_2_8_2 (TensorF rawEmbeddings) (TensorI tokenSeqs) = embedTensor <$> tokenSeqs
+  where
+    embedTensor :: Seq -> TensorF
+    embedTensor seq = TensorF [fromMaybe (error "failed to lookup.") $ (rawEmbeddings !? v)| v <- seq]
+
 -- | Generate a random set of embeddings as a TensorF.
 randomEmbeddings :: HyperParams -> Vocab -> TensorF
 randomEmbeddings (HyperParams embeddingDimensions) vocab
@@ -716,18 +723,25 @@ run rawArgs =
                 <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [3]] <> "\n"
                 <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [2,3,5,1]] <> "\n"
       Example (2,8) -> do
+        dictionary <- readDictionary
         input <- readInput
         merges <- readMerges
         let
           res_2_8_1 = example_2_8_1 input merges extensionsGPT2
+          res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams (dictionaryFromJSON dictionary)) (head res_2_8_1)
           in
           putStrLn $ show hyperParams <> "\n"
-                  <> show res_2_8_1 <> "\nInputs shape: [" <> show (heightOf $ head res_2_8_1) <> "," <> show (widthOf $ head res_2_8_1) <> "]\n"
+                  <> show res_2_8_1 <> "\nInputs shape: [" <> show (heightOfI $ head res_2_8_1) <> "," <> show (widthOfI $ head res_2_8_1) <> "]\n"
+                  <> show res_2_8_2 <> "\nInputs shape: [" <> show (length res_2_8_2) <> "," <> show (heightOfF $ head res_2_8_2) <> "," <> show (widthOfF $ head res_2_8_2) <> "]\n"
           where
-            widthOf (TensorI []) = 0
-            widthOf (TensorI (a:_)) = length a
-            heightOf (TensorI []) = 0
-            heightOf (TensorI xs) = length xs
+            widthOfI (TensorI []) = 0
+            widthOfI (TensorI (a:_)) = length a
+            heightOfI (TensorI []) = 0
+            heightOfI (TensorI xs) = length xs
+            widthOfF (TensorF []) = 0
+            widthOfF (TensorF (a:_)) = length a
+            heightOfF (TensorF []) = 0
+            heightOfF (TensorF xs) = length xs
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
