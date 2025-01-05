@@ -437,6 +437,11 @@ example_2_7_2 hyperParams dictionary = randomEmbeddings hyperParams jsonDictiona
 example_2_7_3 :: TensorF -> BSL.ByteString
 example_2_7_3 embeddings = embeddingsToJSON embeddings
 
+example_2_8_1 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
+example_2_8_1 text merges extensions = [
+                                        TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ]
+
 -- | Generate a random set of embeddings as a TensorF.
 randomEmbeddings :: HyperParams -> Vocab -> TensorF
 randomEmbeddings (HyperParams embeddingDimensions) vocab
@@ -710,6 +715,19 @@ run rawArgs =
                 <> BSC.unpack (BSL.toStrict $ example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
                 <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [3]] <> "\n"
                 <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [2,3,5,1]] <> "\n"
+      Example (2,8) -> do
+        input <- readInput
+        merges <- readMerges
+        let
+          res_2_8_1 = example_2_8_1 input merges extensionsGPT2
+          in
+          putStrLn $ show hyperParams <> "\n"
+                  <> show res_2_8_1 <> "\nInputs shape: [" <> show (heightOf $ head res_2_8_1) <> "," <> show (widthOf $ head res_2_8_1) <> "]\n"
+          where
+            widthOf (TensorI []) = 0
+            widthOf (TensorI (a:_)) = length a
+            heightOf (TensorI []) = 0
+            heightOf (TensorI xs) = length xs
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
