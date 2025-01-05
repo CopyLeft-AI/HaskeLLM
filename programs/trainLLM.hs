@@ -24,9 +24,13 @@ import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing
 
 import qualified Prelude as PL (readFile)
 
-import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), eitherDecode, withObject)
+import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), (.=), eitherDecode, object, withObject)
+
+import qualified Data.Aeson as A (encode)
 
 import Data.Aeson.Key (Key, toText)
+
+import qualified Data.Aeson.Key as AK (fromString)
 
 import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
 
@@ -424,17 +428,19 @@ example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
 
 -- | Generate a random set of embeddings.
 example_2_7_2 :: HyperParams -> BSL.ByteString -> TensorF
-example_2_7_2 hyperParams dictionary
-  | otherwise = randomEmbeddings hyperParams jsonDictionary 
+example_2_7_2 hyperParams dictionary = randomEmbeddings hyperParams jsonDictionary
   where
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
+
+-- | Generate a random set of embeddings as JSON.
+example_2_7_3 :: TensorF -> BSL.ByteString
+example_2_7_3 embeddings = embeddingsToJSON embeddings
 
 randomEmbeddings :: HyperParams -> Vocab -> TensorF
 randomEmbeddings (HyperParams embeddingDimensions) vocab
   | otherwise = TensorF $ [randomEmbedding (mkStdGen v) | v <- [0,1..vocabLength]]
     where
-      randomGenerator = mkStdGen 42
       randomEmbedding :: StdGen -> [Float]
       randomEmbedding = take embeddingDimensions . unfoldr (Just . uniformR (-3,3))
       vocabLength = length vocab
@@ -458,6 +464,16 @@ instance FromJSON Embeddings where
           numbersFromValue :: Value -> [Float]
           numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
           numbersFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
+
+instance ToJSON Embeddings where
+  toJSON (Embeddings rawEmbeddings) = toJSON $ object $ (\(a,b) -> AK.fromString (BSC.unpack a) .= b) <$> DHSI.toList rawEmbeddings
+
+-- | fill a ByteString with the JSON formatted form of the given tensor.
+embeddingsToJSON :: TensorF -> BSL.ByteString
+embeddingsToJSON tensorf
+  | otherwise = A.encode $ embeddingsFromTensor tensorf
+    where
+      embeddingsFromTensor (TensorF sequences) = Embeddings $ DHSI.fromList $ zip [BSL.toStrict $ toByteString v | v <- [0,1 .. length sequences-1]] sequences
 
 -- | Read a set of embeddings from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your embeddings dimensions.
 embeddingsFromJSON :: BSL.ByteString -> TensorF
@@ -685,12 +701,12 @@ run rawArgs =
                 <> show (example_2_6_7 input merges extensionsGPT2) <> "\n" <> "\n"
                 <> show (example_2_6_8 input merges extensionsGPT2) <> "\n" <> "\n"
       Example (2,7) -> do
-        -- input <- readInput
         dictionary <- readDictionary
         embeddings <- readEmbeddings
         putStrLn $ show hyperParams <> "\n"
                 <> show (example_2_7_1 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_2_7_2 hyperParams dictionary) <> "\n"
+                <> show (example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
