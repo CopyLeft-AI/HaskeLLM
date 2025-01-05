@@ -62,7 +62,7 @@ import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList
 
 import Data.List ((++), any, drop, elem, foldr1, head, unfoldr, sort)
 
-import Data.List.Extra (replace)
+import Data.List.Extra ((!?), replace)
 
 import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneOf)
 
@@ -437,6 +437,7 @@ example_2_7_2 hyperParams dictionary = randomEmbeddings hyperParams jsonDictiona
 example_2_7_3 :: TensorF -> BSL.ByteString
 example_2_7_3 embeddings = embeddingsToJSON embeddings
 
+-- | Generate a random set of embeddings as a TensorF.
 randomEmbeddings :: HyperParams -> Vocab -> TensorF
 randomEmbeddings (HyperParams embeddingDimensions) vocab
   | otherwise = TensorF $ [randomEmbedding (mkStdGen v) | v <- [0,1..vocabLength]]
@@ -707,6 +708,8 @@ run rawArgs =
                 <> show (example_2_7_1 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_2_7_2 hyperParams dictionary) <> "\n"
                 <> BSC.unpack (BSL.toStrict $ example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
+                <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [3]] <> "\n"
+                <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [2,3,5,1]] <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
