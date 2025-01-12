@@ -70,7 +70,7 @@ import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList
 
 import Data.List ((++), drop, elem, foldr1, head, unfoldr, sort)
 
-import Data.List.Extra ((!?), replace)
+import Data.List.Extra (replace)
 
 import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneOf)
 
@@ -438,14 +438,14 @@ example_2_7_1 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteSt
 -- Second, construct a random set of embeddings, and display them.
 
 -- | Generate a random set of embeddings.
-example_2_7_2 :: HyperParams -> BSL.ByteString -> TensorF
+example_2_7_2 :: HyperParams -> BSL.ByteString -> NVec2F
 example_2_7_2 hyperParams dictionary = randomEmbeddings hyperParams jsonDictionary
   where
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
 -- | Generate a random set of embeddings as JSON.
-example_2_7_3 :: TensorF -> BSL.ByteString
+example_2_7_3 :: NVec2F -> BSL.ByteString
 example_2_7_3 embeddings = embeddingsToJSON embeddings
 
 example_2_8_1 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
@@ -453,20 +453,24 @@ example_2_8_1 text merges extensions = [
                                         TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
--- gives you a list of TensorFs, where each tensorF coresponds to one Seq from TensorI.
-example_2_8_2 :: TensorF -> TensorI -> [TensorF]
-example_2_8_2 (TensorF rawEmbeddings) (TensorI tokenSeqs) = embedTensor <$> tokenSeqs
+-- | Perform token embedding. Gives you a list of TensorFs, where each tensorF coresponds to one Seq from TensorI.
+example_2_8_2 :: NVec2F -> TensorI -> [TensorF]
+example_2_8_2 (NVec2F rawEmbeddings) (TensorI tokenSeqs) = embedTensor <$> tokenSeqs
   where
     embedTensor :: Seq -> TensorF
-    embedTensor seq = TensorF [fromMaybe (error "failed to lookup.") $ (rawEmbeddings !? v)| v <- seq]
+    embedTensor seq = TensorF [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
+
+-- | Perform positional embedding.
+example_2_8_3 :: Int -> Int -> TensorF
+example_2_8_3 dimensions positions = TensorF $ take positions $ chunksOf dimensions $ [0.0 :: Float,1.0..]
 
 -- | Generate a random set of embeddings as a TensorF.
-randomEmbeddings :: HyperParams -> Vocab -> TensorF
+randomEmbeddings :: HyperParams -> Vocab -> NVec2F
 randomEmbeddings (HyperParams embeddingDimensions) vocab
-  | otherwise = TensorF $ [randomEmbedding (mkStdGen v) | v <- [0,1..vocabLength]]
+  | otherwise = NVec2F $ fromListUnboxed (Z :. vocabLength :. embeddingDimensions) $ concat [mkRandomEmbedding (mkStdGen v) | v <- [0,1..vocabLength-1]]
     where
-      randomEmbedding :: StdGen -> [Float]
-      randomEmbedding = take embeddingDimensions . unfoldr (Just . uniformR (-3,3))
+      mkRandomEmbedding :: StdGen -> [Float]
+      mkRandomEmbedding = take embeddingDimensions . unfoldr (Just . uniformR (-3,3))
       vocabLength = length vocab
 
 -- | A type for Embeddings, as they come out of the JSON file.
@@ -492,12 +496,14 @@ instance FromJSON Embeddings where
 instance ToJSON Embeddings where
   toJSON (Embeddings rawEmbeddings) = toJSON $ object $ (\(a,b) -> AK.fromString (BSC.unpack a) .= b) <$> DHSI.toList rawEmbeddings
 
--- | fill a ByteString with the JSON formatted form of the given tensor.
-embeddingsToJSON :: TensorF -> BSL.ByteString
-embeddingsToJSON tensorf
-  | otherwise = A.encode $ embeddingsFromTensor tensorf
+-- | fill a ByteString with the JSON formatted form of the given set of embeddings.
+embeddingsToJSON :: NVec2F -> BSL.ByteString
+embeddingsToJSON nVec2f
+  | otherwise = A.encode $ embeddingsFromTensor nVec2f
     where
-      embeddingsFromTensor (TensorF sequences) = Embeddings $ DHSI.fromList $ zip [BSL.toStrict $ toByteString v | v <- [0,1 .. length sequences-1]] sequences
+      embeddingsFromTensor (NVec2F rawEmbeddings) = Embeddings $ DHSI.fromList $ zip [BSL.toStrict $ toByteString v | v <- [0,1 .. length sequences-1]] sequences
+        where
+          sequences = [DAR.toList rawEmbeddings]
 
 -- | Read a set of embeddings from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your embeddings dimensions.
 embeddingsFromJSON :: BSL.ByteString -> NVec2F
@@ -686,7 +692,7 @@ run rawArgs =
     hyperParams = case embeddingDimensionsOpt rawArgs of
                     Nothing -> error "This example requires you to specify a number of dimensions each embedding recieves."
                     Just a -> if a < 1
-                              then error "You must specify a positive number of dimentions for your embeddings."
+                              then error "You must specify a positive number of dimensions for your embeddings."
                               else HyperParams a
   in
     case exampleOpt rawArgs of
@@ -741,10 +747,12 @@ run rawArgs =
         let
           res_2_8_1 = example_2_8_1 input merges extensionsGPT2
           res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams (dictionaryFromJSON dictionary)) (head res_2_8_1)
+          res_2_8_3 = example_2_8_3 ((\(HyperParams v) -> v) hyperParams) 4
           in
           putStrLn $ show hyperParams <> "\n"
                   <> show res_2_8_1 <> "\nInputs shape: [" <> show (heightOfI $ head res_2_8_1) <> "," <> show (widthOfI $ head res_2_8_1) <> "]\n"
                   <> show res_2_8_2 <> "\nInputs shape: [" <> show (length res_2_8_2) <> "," <> show (heightOfF $ head res_2_8_2) <> "," <> show (widthOfF $ head res_2_8_2) <> "]\n"
+                  <> show res_2_8_3 <> "\nInputs shape: [" <> show (heightOfF res_2_8_3) <> "," <> show (widthOfF res_2_8_3) <> "]\n"
           where
             widthOfI (TensorI []) = 0
             widthOfI (TensorI (a:_)) = length a
