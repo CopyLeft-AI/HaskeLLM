@@ -20,7 +20,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Eq, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (-), concat, error, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -72,7 +72,7 @@ import Data.List ((++), drop, elem, foldr1, head, unfoldr, sort)
 
 import Data.List.Extra (replace)
 
-import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneOf)
+import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
 
@@ -383,31 +383,28 @@ example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 5
     mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
 
 
-data TensorI = TensorI [Seq]
-  deriving (Eq, Show)
-
 data NVec2I = NVec2I (DAR.Array U DIM2 Int)
   deriving Show
 
 data NVec3I = NVec3I (DAR.Array U DIM3 Int)
   deriving Show
 
-example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
-example_2_6_6 text merges extensions = [
-                                        TensorI [take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
-                                       ,TensorI [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> NVec2I
+example_2_6_6 text merges extensions = NVec2I $ fromListUnboxed (Z :. 2 :. 4) $ concat $ [
+                                        take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ,take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
-example_2_6_7 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
-example_2_6_7 text merges extensions = [
-                                        TensorI [take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
-                                       ,TensorI [take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
+example_2_6_7 :: [Char] -> BSL.ByteString -> Extensions -> NVec2I
+example_2_6_7 text merges extensions = NVec2I $ fromListUnboxed (Z :. 2 :. 4) $ concat $ [
+                                        take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ,take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
-example_2_6_8 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
-example_2_6_8 text merges extensions = [
-                                        TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ,TensorI $ take 8 $ chunksOf 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+example_2_6_8 :: [Char] -> BSL.ByteString -> Extensions -> NVec3I
+example_2_6_8 text merges extensions = NVec3I $ fromListUnboxed (Z :. 2 :. 8 :. 4) $ concat $ [
+                                        take (8*4) $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+                                       ,take (8*4) $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
 -- | Our Hyperparameters. The configuration settings of the model we are working with.
