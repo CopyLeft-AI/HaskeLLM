@@ -44,7 +44,7 @@ import Data.Array.Repa (U, Z(Z), extent, fromListUnboxed, slice)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
-import Data.Array.Repa.Index (DIM2, (:.)((:.)))
+import Data.Array.Repa.Index (DIM2, DIM3, (:.)((:.)))
 
 import Data.Array.Repa.Slice (Any(Any), All(All))
 
@@ -412,10 +412,10 @@ data HyperParams =
     }
   deriving Show
 
-data TensorF = TensorF [[Float]]
-  deriving (Eq, Show)
-
 data NVec2F = NVec2F (DAR.Array U DIM2 Float)
+  deriving Show
+
+data NVec3F = NVec3F (DAR.Array U DIM3 Float)
   deriving Show
 
 -- We're getting a bit creative in this section; first, perform serialization, since there is no way we're getting our random seed to line up.
@@ -453,18 +453,22 @@ example_2_8_1 text merges extensions = [
                                         TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
                                        ]
 
--- | Perform token embedding. Gives you a list of TensorFs, where each tensorF coresponds to one Seq from TensorI.
-example_2_8_2 :: NVec2F -> TensorI -> [TensorF]
-example_2_8_2 (NVec2F rawEmbeddings) (TensorI tokenSeqs) = embedTensor <$> tokenSeqs
+-- | Perform token embedding.
+-- for each sequence in the inputs, look up the tokens in the embeddings, and replace them.
+example_2_8_2 :: NVec2F -> TensorI -> NVec3F
+example_2_8_2 (NVec2F rawEmbeddings) (TensorI tokenSeqs) = NVec3F $ fromListUnboxed (Z :. length tokenSeqs :. seqLength :. foundEmbeddingsDimensions) $ concat $ (\(NVec2F a) -> DAR.toList a) . embedTensor <$> tokenSeqs
   where
-    embedTensor :: Seq -> TensorF
-    embedTensor seq = TensorF [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
+    seqLength = length (head tokenSeqs)
+    -- look up all of the items in Seq, generating embeddings for each of them. replaces [Int] with [[Float]]
+    embedTensor :: Seq -> NVec2F
+    embedTensor seq = NVec2F $ fromListUnboxed (Z :. (length seq) :. foundEmbeddingsDimensions) $ concat $ [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
+    (Z :. _ :. foundEmbeddingsDimensions) = extent rawEmbeddings
 
 -- | Perform positional embedding.
-example_2_8_3 :: Int -> Int -> TensorF
-example_2_8_3 dimensions positions = TensorF $ take positions $ chunksOf dimensions $ [0.0 :: Float,1.0..]
+example_2_8_3 :: Int -> Int -> NVec2F
+example_2_8_3 dimensions positions = NVec2F $ fromListUnboxed (Z :. positions :. dimensions) $ take (positions * dimensions) $ [0.0 :: Float,1.0..]
 
--- | Generate a random set of embeddings as a TensorF.
+-- | Generate a random set of embeddings.
 randomEmbeddings :: HyperParams -> Vocab -> NVec2F
 randomEmbeddings (HyperParams embeddingDimensions) vocab
   | otherwise = NVec2F $ fromListUnboxed (Z :. vocabLength :. embeddingDimensions) $ concat [mkRandomEmbedding (mkStdGen v) | v <- [0,1..vocabLength-1]]
@@ -747,21 +751,19 @@ run rawArgs =
         let
           res_2_8_1 = example_2_8_1 input merges extensionsGPT2
           res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams (dictionaryFromJSON dictionary)) (head res_2_8_1)
+          (Z :. res_2_8_2_H :. res_2_8_2_W :. res_2_8_2_D) = extent ((\(NVec3F a) -> a) res_2_8_2)
           res_2_8_3 = example_2_8_3 ((\(HyperParams v) -> v) hyperParams) 4
+          (Z :. res_2_8_3_H :. res_2_8_3_W) = extent ((\(NVec2F a) -> a) res_2_8_3)
           in
           putStrLn $ show hyperParams <> "\n"
                   <> show res_2_8_1 <> "\nInputs shape: [" <> show (heightOfI $ head res_2_8_1) <> "," <> show (widthOfI $ head res_2_8_1) <> "]\n"
-                  <> show res_2_8_2 <> "\nInputs shape: [" <> show (length res_2_8_2) <> "," <> show (heightOfF $ head res_2_8_2) <> "," <> show (widthOfF $ head res_2_8_2) <> "]\n"
-                  <> show res_2_8_3 <> "\nInputs shape: [" <> show (heightOfF res_2_8_3) <> "," <> show (widthOfF res_2_8_3) <> "]\n"
+                  <> show res_2_8_2 <> "\nInputs shape: [" <> show res_2_8_2_H <> "," <> show res_2_8_2_W <> "," <> show res_2_8_2_D <> "]\n"
+                  <> show res_2_8_3 <> "\nInputs shape: [" <> show res_2_8_3_H <> "," <> show res_2_8_3_W <> "]\n"
           where
             widthOfI (TensorI []) = 0
             widthOfI (TensorI (a:_)) = length a
             heightOfI (TensorI []) = 0
             heightOfI (TensorI xs) = length xs
-            widthOfF (TensorF []) = 0
-            widthOfF (TensorF (a:_)) = length a
-            heightOfF (TensorF []) = 0
-            heightOfF (TensorF xs) = length xs
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
