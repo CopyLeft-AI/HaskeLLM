@@ -40,6 +40,14 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
+import Data.Array.Repa (U, Z(Z), extent, fromListUnboxed, slice)
+
+import qualified Data.Array.Repa as DAR (Array, toList)
+
+import Data.Array.Repa.Index (DIM2, (:.)((:.)))
+
+import Data.Array.Repa.Slice (Any(Any), All(All))
+
 import qualified Data.ByteString as BSS (ByteString, pack, singleton, unpack)
 
 import qualified Data.ByteString.Char8 as BSC (unpack)
@@ -60,7 +68,7 @@ import Data.HashMap.Strict.InsOrd (InsOrdHashMap, empty, insert, lookup, size)
 
 import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList, union)
 
-import Data.List ((++), any, drop, elem, foldr1, head, unfoldr, sort)
+import Data.List ((++), drop, elem, foldr1, head, unfoldr, sort)
 
 import Data.List.Extra ((!?), replace)
 
@@ -407,20 +415,23 @@ data HyperParams =
 data TensorF = TensorF [[Float]]
   deriving (Eq, Show)
 
+data NVec2F = NVec2F (DAR.Array U DIM2 Float)
+  deriving Show
+
 -- We're getting a bit creative in this section; first, perform serialization, since there is no way we're getting our random seed to line up.
 
 -- | Read from JSON and display a set of token embeddings.
-example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> TensorF
-example_2_7_1 (HyperParams embeddingDimensions) dictionary rawTokenEmbeddings
-  | embeddingDimensions /= length (firstEmbedding tokenEmbeddings) = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nFirst Embedding: " <> show (firstEmbedding tokenEmbeddings) <> "\nDimensions expected: " <> show embeddingDimensions <> "\nFound dimensions: " <> show (length $ firstEmbedding tokenEmbeddings) <> "\n"
-  | length jsonDictionary /= tokenEmbeddingsLength tokenEmbeddings = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (tokenEmbeddingsLength tokenEmbeddings) <> "\n"
-  | any (\a -> length a /= length (firstEmbedding tokenEmbeddings)) ((\(TensorF xs) -> xs) tokenEmbeddings) = error "malformatted token input embedding file: not all of the embeddings have the same dimensionality?\n"
+example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec2F
+example_2_7_1 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected: " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  -- FIXME: Ensure the dimensionality of all of our tokens is correct.
   | otherwise = tokenEmbeddings
   where
-    firstEmbedding (TensorF rawTensorF) = head rawTensorF
-    tokenEmbeddingsLength :: TensorF -> Int
-    tokenEmbeddingsLength (TensorF rawEmbeddings) = length rawEmbeddings
-    tokenEmbeddings = embeddingsFromJSON rawTokenEmbeddings
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
@@ -489,14 +500,15 @@ embeddingsToJSON tensorf
       embeddingsFromTensor (TensorF sequences) = Embeddings $ DHSI.fromList $ zip [BSL.toStrict $ toByteString v | v <- [0,1 .. length sequences-1]] sequences
 
 -- | Read a set of embeddings from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your embeddings dimensions.
-embeddingsFromJSON :: BSL.ByteString -> TensorF
-embeddingsFromJSON json = embeddingsToTensorF embeddings
+embeddingsFromJSON :: BSL.ByteString -> NVec2F
+embeddingsFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawEmbeddings) :. firstEmbeddingLength) embeddingsList
   where
-    embeddings = case eitherDecode json :: Either String Embeddings of
-                   Left err -> error $ "parse error when reading embeddings:\n" <> err <> "\n" <> show json <> "\n"
-                   Right d -> d
-    embeddingsToTensorF :: Embeddings -> TensorF
-    embeddingsToTensorF (Embeddings rawEmbeddings) = TensorF $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawEmbeddings) <$> [0,1..size rawEmbeddings-1]
+    (Embeddings rawEmbeddings) = case eitherDecode json :: Either String Embeddings of
+                                   Left err -> error $ "parse error when reading embeddings:\n" <> err <> "\n" <> show json <> "\n"
+                                   Right d -> d
+    -- By performing lookup from 0-size rawEmbeddings, we ensure a consistent space, with no gaps.
+    embeddingsList = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawEmbeddings) <$> [0,1..size rawEmbeddings-1]
+    firstEmbeddingLength = length $ fromMaybe (error $ "failed to lookup first embedding (0)." ) $ lookup "0" rawEmbeddings
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -720,8 +732,8 @@ run rawArgs =
                 <> show (example_2_7_1 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_2_7_2 hyperParams dictionary) <> "\n"
                 <> BSC.unpack (BSL.toStrict $ example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
-                <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [3]] <> "\n"
-                <> show [fromMaybe (error "failed to lookup.") $ (((\(TensorF a) -> a) $ example_2_7_1 hyperParams dictionary embeddings) !? v)| v <- [2,3,5,1]] <> "\n"
+                <> show [DAR.toList $ (\(NVec2F a) -> slice a (Any :. (v:: Int) :. All)) $ example_2_7_1 hyperParams dictionary embeddings| v <- [3]] <> "\n"
+                <> show [DAR.toList $ (\(NVec2F a) -> slice a (Any :. (v:: Int) :. All)) $ example_2_7_1 hyperParams dictionary embeddings| v <- [2,3,5,1]] <> "\n"
       Example (2,8) -> do
         dictionary <- readDictionary
         input <- readInput
