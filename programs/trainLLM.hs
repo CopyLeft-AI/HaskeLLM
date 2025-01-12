@@ -386,6 +386,12 @@ example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 5
 data TensorI = TensorI [Seq]
   deriving (Eq, Show)
 
+data NVec2I = NVec2I (DAR.Array U DIM2 Int)
+  deriving Show
+
+data NVec3I = NVec3I (DAR.Array U DIM3 Int)
+  deriving Show
+
 example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
 example_2_6_6 text merges extensions = [
                                         TensorI [take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)]
@@ -448,17 +454,17 @@ example_2_7_2 hyperParams dictionary = randomEmbeddings hyperParams jsonDictiona
 example_2_7_3 :: NVec2F -> BSL.ByteString
 example_2_7_3 embeddings = embeddingsToJSON embeddings
 
-example_2_8_1 :: [Char] -> BSL.ByteString -> Extensions -> [TensorI]
-example_2_8_1 text merges extensions = [
-                                        TensorI $ take 8 $ chunksOf 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ]
+example_2_8_1 :: [Char] -> BSL.ByteString -> Extensions -> NVec2I
+example_2_8_1 text merges extensions = NVec2I $ fromListUnboxed (Z :. 8 :. 4) $ take (8*4) $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
 
 -- | Perform token embedding.
--- for each sequence in the inputs, look up the tokens in the embeddings, and replace them.
-example_2_8_2 :: NVec2F -> TensorI -> NVec3F
-example_2_8_2 (NVec2F rawEmbeddings) (TensorI tokenSeqs) = NVec3F $ fromListUnboxed (Z :. length tokenSeqs :. seqLength :. foundEmbeddingsDimensions) $ concat $ (\(NVec2F a) -> DAR.toList a) . embedTensor <$> tokenSeqs
+-- for each sequence in the inputs, look up the tokens in the embeddings, and replace the token with the embedding.
+example_2_8_2 :: NVec2F -> NVec2I -> NVec3F
+example_2_8_2 (NVec2F rawEmbeddings) (NVec2I tokenSeqs) = NVec3F $ fromListUnboxed (Z :. seqCount :. seqLength :. foundEmbeddingsDimensions) $(\(NVec2F a) -> DAR.toList a) . embedTensor $ [v | v <- sequences]
   where
-    seqLength = length (head tokenSeqs)
+    (Z :. seqCount :. seqLength) = extent tokenSeqs 
+--    seqLength = length (head tokenSeqs)
+    sequences = DAR.toList tokenSeqs
     -- look up all of the items in Seq, generating embeddings for each of them. replaces [Int] with [[Float]]
     embedTensor :: Seq -> NVec2F
     embedTensor seq = NVec2F $ fromListUnboxed (Z :. (length seq) :. foundEmbeddingsDimensions) $ concat $ [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
@@ -749,21 +755,17 @@ run rawArgs =
         input <- readInput
         merges <- readMerges
         let
-          res_2_8_1 = example_2_8_1 input merges extensionsGPT2
-          res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams (dictionaryFromJSON dictionary)) (head res_2_8_1)
+          res_2_8_1@(NVec2I rawRes_2_8_1) = example_2_8_1 input merges extensionsGPT2
+          (Z :. res_2_8_1_H :. res_2_8_1_W) = extent rawRes_2_8_1
+          res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams (dictionaryFromJSON dictionary)) (res_2_8_1)
           (Z :. res_2_8_2_H :. res_2_8_2_W :. res_2_8_2_D) = extent ((\(NVec3F a) -> a) res_2_8_2)
           res_2_8_3 = example_2_8_3 ((\(HyperParams v) -> v) hyperParams) 4
           (Z :. res_2_8_3_H :. res_2_8_3_W) = extent ((\(NVec2F a) -> a) res_2_8_3)
           in
           putStrLn $ show hyperParams <> "\n"
-                  <> show res_2_8_1 <> "\nInputs shape: [" <> show (heightOfI $ head res_2_8_1) <> "," <> show (widthOfI $ head res_2_8_1) <> "]\n"
+                  <> show res_2_8_1 <> "\nInputs shape: [" <> show res_2_8_1_H <> "," <> show res_2_8_1_W <> "]\n"
                   <> show res_2_8_2 <> "\nInputs shape: [" <> show res_2_8_2_H <> "," <> show res_2_8_2_W <> "," <> show res_2_8_2_D <> "]\n"
                   <> show res_2_8_3 <> "\nInputs shape: [" <> show res_2_8_3_H <> "," <> show res_2_8_3_W <> "]\n"
-          where
-            widthOfI (TensorI []) = 0
-            widthOfI (TensorI (a:_)) = length a
-            heightOfI (TensorI []) = 0
-            heightOfI (TensorI xs) = length xs
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
