@@ -40,9 +40,9 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, Z(Z), extent, fromListUnboxed, slice)
+import Data.Array.Repa (U, Z(Z), (+^), computeS, computeP, extend, extent, fromListUnboxed, slice)
 
-import qualified Data.Array.Repa as DAR (Array, toList)
+import qualified Data.Array.Repa as DAR (Array, map, toList)
 
 import Data.Array.Repa.Index (DIM2, DIM3, (:.)((:.)))
 
@@ -72,7 +72,7 @@ import Data.List ((++), drop, elem, foldr1, head, unfoldr, sort)
 
 import Data.List.Extra (replace)
 
-import Data.List.Split (dropBlanks, oneOf, onSublist, split, splitOneOf)
+import Data.List.Split (chunk, dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
 
@@ -457,19 +457,35 @@ example_2_8_1 text merges extensions = NVec2I $ fromListUnboxed (Z :. 8 :. 4) $ 
 -- | Perform token embedding.
 -- for each sequence in the inputs, look up the tokens in the embeddings, and replace the token with the embedding.
 example_2_8_2 :: NVec2F -> NVec2I -> NVec3F
-example_2_8_2 (NVec2F rawEmbeddings) (NVec2I tokenSeqs) = NVec3F $ fromListUnboxed (Z :. seqCount :. seqLength :. foundEmbeddingsDimensions) $(\(NVec2F a) -> DAR.toList a) . embedTensor $ [v | v <- sequences]
+example_2_8_2 (NVec2F rawEmbeddings) (NVec2I tokenSeqs) = NVec3F $ fromListUnboxed (Z :. seqCount :. seqLength :. foundEmbeddingsDimensions) $ concat [(\(NVec2F a) -> DAR.toList a) $ embedSeq v | v <- sequences]
   where
-    (Z :. seqCount :. seqLength) = extent tokenSeqs 
---    seqLength = length (head tokenSeqs)
-    sequences = DAR.toList tokenSeqs
+    (Z :. seqCount :. seqLength) = extent tokenSeqs
+    sequences :: [Seq]
+    sequences = chunk seqLength $ DAR.toList tokenSeqs
     -- look up all of the items in Seq, generating embeddings for each of them. replaces [Int] with [[Float]]
-    embedTensor :: Seq -> NVec2F
-    embedTensor seq = NVec2F $ fromListUnboxed (Z :. (length seq) :. foundEmbeddingsDimensions) $ concat $ [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
+    embedSeq :: Seq -> NVec2F
+    embedSeq seq = NVec2F $ fromListUnboxed (Z :. (length seq) :. foundEmbeddingsDimensions) $ concat [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
     (Z :. _ :. foundEmbeddingsDimensions) = extent rawEmbeddings
 
 -- | Perform positional embedding.
 example_2_8_3 :: Int -> Int -> NVec2F
 example_2_8_3 dimensions positions = NVec2F $ fromListUnboxed (Z :. positions :. dimensions) $ take (positions * dimensions) $ [0.0 :: Float,1.0..]
+
+-- | Add positional embedding to token embedding.
+example_2_8_4 ::  NVec3F -> NVec2F -> NVec3F
+example_2_8_4 (NVec3F tokenEmbeddings) (NVec2F positionalEmbeddings) =
+  do
+    let
+      res1 :: DAR.Array U DIM3 Float
+      res1 = computeS $ extendedPositionalEmbeddings +^ tokenEmbeddings
+      in
+      NVec3F res1
+      where
+        extendedPositionalEmbeddings = extend (Z :. (tokenCount :: Int) :. All :. All) positionalEmbeddings
+        (Z :. tokenCount :. tokenLength :. tokenEmbeddingsDimensions) = extent tokenEmbeddings
+        (Z :. positionCount :. positionEmbeddingsDimensions) = extent positionalEmbeddings
+
+-- NVec3F $ fromListUnboxed (Z :. positions :. dimensions) $ take (positions * dimensions) $ [0.0 :: Float,1.0..]
 
 -- | Generate a random set of embeddings.
 randomEmbeddings :: HyperParams -> Vocab -> NVec2F
@@ -758,11 +774,14 @@ run rawArgs =
           (Z :. res_2_8_2_H :. res_2_8_2_W :. res_2_8_2_D) = extent ((\(NVec3F a) -> a) res_2_8_2)
           res_2_8_3 = example_2_8_3 ((\(HyperParams v) -> v) hyperParams) 4
           (Z :. res_2_8_3_H :. res_2_8_3_W) = extent ((\(NVec2F a) -> a) res_2_8_3)
+          res_2_8_4 = example_2_8_4 res_2_8_2 res_2_8_3
+          (Z :. res_2_8_4_H :. res_2_8_4_W :. res_2_8_4_D) = extent ((\(NVec3F a) -> a) res_2_8_4)
           in
           putStrLn $ show hyperParams <> "\n"
                   <> show res_2_8_1 <> "\nInputs shape: [" <> show res_2_8_1_H <> "," <> show res_2_8_1_W <> "]\n"
                   <> show res_2_8_2 <> "\nInputs shape: [" <> show res_2_8_2_H <> "," <> show res_2_8_2_W <> "," <> show res_2_8_2_D <> "]\n"
                   <> show res_2_8_3 <> "\nInputs shape: [" <> show res_2_8_3_H <> "," <> show res_2_8_3_W <> "]\n"
+                  <> show res_2_8_4 <> "\nInputs shape: [" <> show res_2_8_4_H <> "," <> show res_2_8_4_W <> "," <> show res_2_8_4_D <> "]\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
