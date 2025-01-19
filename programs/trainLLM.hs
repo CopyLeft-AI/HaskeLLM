@@ -546,10 +546,11 @@ instance FromJSON Embeddings where
           numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
           numbersFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
 
+-- | Our serializer, to produce JSON from a set of Embeddings.
 instance ToJSON Embeddings where
   toJSON (Embeddings rawEmbeddings) = toJSON $ object $ (\(a,b) -> AK.fromString (BSC.unpack a) .= b) <$> DHSI.toList rawEmbeddings
 
--- | fill a ByteString with the JSON formatted form of the given set of embeddings.
+-- | Fill a ByteString with the JSON formatted form of the given set of embeddings.
 embeddingsToJSON :: NVec2F -> BSL.ByteString
 embeddingsToJSON nVec2f
   | otherwise = A.encode $ embeddingsFromTensor nVec2f
@@ -599,7 +600,7 @@ defaultBacov = Bacov $ DHSI.fromList $ (zip (BSS.singleton <$> [33, 34..]) [0,1.
                                      <> (zip ((\a -> BSS.pack [196,128+a]) <$> [0,1..63]) [188, 189..251] )    -- UTF8 characters U+0100-U+013F
                                      <> (zip ((\a -> BSS.pack [197,128+a]) <$> [0,1..63]) [252, 253..255] )    -- UTF8 characters U+0140-U+017F
 
--- | convert an ASCII string into a sequence of tokens in the initVocabGPT2 token space.
+-- | Convert an ASCII string into a sequence of tokens in the initVocabGPT2 token space.
 initSeqGPT2 :: BSS.ByteString -> Seq
 initSeqGPT2 text = conv <$> BSS.unpack text
   where
