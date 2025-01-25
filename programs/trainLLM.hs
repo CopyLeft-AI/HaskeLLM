@@ -40,9 +40,9 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, Z(Z), (+^), computeS, computeP, extend, extent, fromListUnboxed, slice)
+import Data.Array.Repa (U, Z(Z), (+^), computeS, extend, extent, fromListUnboxed, slice)
 
-import qualified Data.Array.Repa as DAR (Array, map, toList)
+import qualified Data.Array.Repa as DAR (Array, toList)
 
 import Data.Array.Repa.Index (DIM2, DIM3, (:.)((:.)))
 
@@ -72,7 +72,7 @@ import Data.List ((++), drop, elem, foldr1, head, unfoldr, sort)
 
 import Data.List.Extra (replace)
 
-import Data.List.Split (chunk, dropBlanks, oneOf, onSublist, split, splitOneOf)
+import Data.List.Split (chunksOf, dropBlanks, oneOf, onSublist, split, splitOneOf)
 
 import Data.List.Unique (sortUniq)
 
@@ -459,10 +459,9 @@ data NVec3F = NVec3F (DAR.Array U DIM3 Float)
 example_2_7_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec2F
 example_2_7_1 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
   -- Check our expected embedding dimensions, compared to the found one.
-  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected: " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
-  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
-  -- FIXME: Ensure the dimensionality of all of our tokens is correct.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
   | otherwise = tokenEmbeddings
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
@@ -493,7 +492,7 @@ example_2_8_2 (NVec2F rawEmbeddings) (NVec2I tokenSeqs) = NVec3F $ fromListUnbox
   where
     (Z :. seqCount :. seqLength) = extent tokenSeqs
     sequences :: [Seq]
-    sequences = chunk seqLength $ DAR.toList tokenSeqs
+    sequences = chunksOf seqLength $ DAR.toList tokenSeqs
     -- look up all of the items in Seq, generating embeddings for each of them. replaces [Int] with [[Float]]
     embedSeq :: Seq -> NVec2F
     embedSeq seq = NVec2F $ fromListUnboxed (Z :. (length seq) :. foundEmbeddingsDimensions) $ concat [DAR.toList $ slice rawEmbeddings (Any :. (v::Int) :. All) | v <- seq]
@@ -503,11 +502,12 @@ example_2_8_2 (NVec2F rawEmbeddings) (NVec2I tokenSeqs) = NVec3F $ fromListUnbox
 example_2_8_3 :: Int -> Int -> NVec2F
 example_2_8_3 dimensions positions = NVec2F $ fromListUnboxed (Z :. positions :. dimensions) $ take (positions * dimensions) $ [0.0 :: Float,1.0..]
 
--- | Add positional embeddings to token embeddings.
+-- | Add a set of positional embeddings to a set of token embeddings.
 example_2_8_4 ::  NVec3F -> NVec2F -> NVec3F
 example_2_8_4 (NVec3F tokenEmbeddings) (NVec2F positionalEmbeddings) =
   do
     let
+      -- FIXME: use computeP in main().
       res1 :: DAR.Array U DIM3 Float
       res1 = computeS $ extendedPositionalEmbeddings +^ tokenEmbeddings
       in
