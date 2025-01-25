@@ -40,11 +40,11 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, Z(Z), (+^), computeS, extend, extent, fromListUnboxed, slice)
+import Data.Array.Repa (U, Z(Z), (*^), (+^), computeS, extend, extent, fromListUnboxed, slice, sumS)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
-import Data.Array.Repa.Index (DIM2, DIM3, (:.)((:.)))
+import Data.Array.Repa.Index (DIM1, DIM2, DIM3, (:.)((:.)))
 
 import Data.Array.Repa.Slice (Any(Any), All(All))
 
@@ -514,8 +514,46 @@ example_2_8_4 (NVec3F tokenEmbeddings) (NVec2F positionalEmbeddings) =
       NVec3F res1
       where
         extendedPositionalEmbeddings = extend (Z :. (tokenCount :: Int) :. All :. All) positionalEmbeddings
-        (Z :. tokenCount :. tokenLength :. tokenEmbeddingsDimensions) = extent tokenEmbeddings
-        (Z :. positionCount :. positionEmbeddingsDimensions) = extent positionalEmbeddings
+        (Z :. tokenCount :. _ :. _) = extent tokenEmbeddings
+
+-- | Read from a JSON file and display a set of token embeddings.
+-- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the embeddings for the input sentence, on page 57.
+-- Note: code identical to example 2_7_1.
+example_3_3_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec2F
+example_3_3_1 = example_2_7_1
+
+-- A one dimensional vector of Floats.
+data NVec1F = NVec1F (DAR.Array U DIM1 Float)
+  deriving Show
+
+-- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 58.
+example_3_3_2 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec1F
+example_3_3_2 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- find dot products against the second token.
+  | otherwise = findDots tokenEmbeddings 1
+  where
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+-- | For a set of token embeddings, find the dot product of a given token when compared to every other token in the set.
+findDots :: NVec2F -> Int -> NVec1F
+findDots (NVec2F rawTokenEmbeddings) itemNo
+  | foundEmbeddingsCount < itemNo = error $ "Too few items.\n"
+                                         <> "comparison token index: " <> show itemNo <> "\n"
+                                         <> "found tokens: " <> show foundEmbeddingsCount <> "\n"
+  | otherwise = NVec1F $ sumS $ rawTokenEmbeddings *^ (extend (Z :. (foundEmbeddingsCount) :. All) target)
+
+  where
+    target = slice rawTokenEmbeddings (Any :. (itemNo :: Int) :. All)
+    (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
 
 -- | Generate a random set of embeddings.
 randomEmbeddings :: HyperParams -> Vocab -> NVec2F
@@ -815,6 +853,12 @@ run rawArgs =
                   <> show res_2_8_2 <> "\nInputs shape: [" <> show res_2_8_2_H <> "," <> show res_2_8_2_W <> "," <> show res_2_8_2_D <> "]\n"
                   <> show res_2_8_3 <> "\nInputs shape: [" <> show res_2_8_3_H <> "," <> show res_2_8_3_W <> "]\n"
                   <> show res_2_8_4 <> "\nInputs shape: [" <> show res_2_8_4_H <> "," <> show res_2_8_4_W <> "," <> show res_2_8_4_D <> "]\n"
+      Example (3,3) -> do
+        dictionary <- readDictionary
+        embeddings <- readEmbeddings
+        putStrLn $ show hyperParams <> "\n"
+                <> show (example_3_3_1 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_2 hyperParams dictionary embeddings) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
