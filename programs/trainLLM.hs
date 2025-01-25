@@ -40,7 +40,7 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, Z(Z), (*^), (+^), computeS, extend, extent, fromListUnboxed, slice, sumS)
+import Data.Array.Repa (U, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, slice, sumS)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
@@ -535,7 +535,7 @@ example_3_3_2 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteSt
   -- Check our expected embedding count, compared to the found one.
   | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
   | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
-  -- find dot products against the second token.
+  -- Find the dot products of all tokens against the second token.
   | otherwise = findDots tokenEmbeddings 1
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
@@ -550,8 +550,39 @@ findDots (NVec2F rawTokenEmbeddings) itemNo
                                          <> "comparison token index: " <> show itemNo <> "\n"
                                          <> "found tokens: " <> show foundEmbeddingsCount <> "\n"
   | otherwise = NVec1F $ sumS $ rawTokenEmbeddings *^ (extend (Z :. (foundEmbeddingsCount) :. All) target)
-
   where
+    target = slice rawTokenEmbeddings (Any :. (itemNo :: Int) :. All)
+    (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
+
+-- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 59.
+example_3_3_3 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec1F
+example_3_3_3 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention against the second token.
+  | otherwise = findDotAttn tokenEmbeddings 1
+  where
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+-- | For a set of token embeddings, find the dot product of a given token when compared to every other token in the set. Normalize the output.
+findDotAttn :: NVec2F -> Int -> NVec1F
+findDotAttn (NVec2F rawTokenEmbeddings) itemNo
+  | foundEmbeddingsCount < itemNo = error $ "Too few items.\n"
+                                         <> "comparison token index: " <> show itemNo <> "\n"
+                                         <> "found tokens: " <> show foundEmbeddingsCount <> "\n"
+  | otherwise = normVec $ NVec1F $ sumS $ rawTokenEmbeddings *^ (extend (Z :. (foundEmbeddingsCount) :. All) target)
+  where
+    normVec :: NVec1F -> NVec1F
+    normVec (NVec1F inVec) = NVec1F $ computeS $ inVec /^ (extend (Z :. foundItems) $ sumS inVec)
+      where
+        (Z :. foundItems) = extent inVec
     target = slice rawTokenEmbeddings (Any :. (itemNo :: Int) :. All)
     (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
 
@@ -859,6 +890,8 @@ run rawArgs =
         putStrLn $ show hyperParams <> "\n"
                 <> show (example_3_3_1 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_3_3_2 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_3 hyperParams dictionary embeddings) <> "\n"
+                <> show (sumS ((\(NVec1F a) -> a) $ example_3_3_3 hyperParams dictionary embeddings)) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
