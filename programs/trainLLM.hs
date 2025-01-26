@@ -614,7 +614,6 @@ example_3_3_4 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteSt
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
--- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the context vector at the bottom of page 60.
 example_3_3_5 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec1F
 example_3_3_5 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
@@ -631,6 +630,58 @@ example_3_3_5 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteSt
     tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
+
+-- | Read a set of token embeddings from a JSON file, and calculate a set of un-normalized attention results.
+-- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the set of attention values on page 62.
+example_3_3_6 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec2F
+example_3_3_6 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention of each item against each item, including itsself.
+  | otherwise = findMyAttns
+  where
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+    -- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
+    findMyAttns :: NVec2F
+    findMyAttns = NVec2F $ sumS $ leftSide *^ rightSide
+      where
+        leftSide = extend (Z :. (foundEmbeddingsCount) :. All :. All) rawTokenEmbeddings
+        rightSide = extend (Z :. All :. (foundEmbeddingsCount) :. All) rawTokenEmbeddings
+
+-- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 63.
+example_3_3_7 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> NVec2F
+example_3_3_7 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteStream
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention against the second token.
+  | otherwise = findAttns tokenEmbeddings
+  where
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+-- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
+findAttns :: NVec2F -> NVec2F
+findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ rightSide
+  where
+    leftSide = extend (Z :. (foundEmbeddingsCount) :. All :. All) rawTokenEmbeddings
+    rightSide = extend (Z :. All :. (foundEmbeddingsCount) :. All) rawTokenEmbeddings
+    (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
+    softMax :: NVec2F -> NVec2F
+    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
+      where
+        (Z :. foundItems :. _) = extent inRawVec
 
 -- | Generate a random set of embeddings.
 randomEmbeddings :: HyperParams -> Vocab -> NVec2F
@@ -940,6 +991,8 @@ run rawArgs =
                 <> show (sumS ((\(NVec1F a) -> a) $ example_3_3_3 hyperParams dictionary embeddings)) <> "\n"
                 <> show (example_3_3_4 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_3_3_5 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_6 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_7 hyperParams dictionary embeddings) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
