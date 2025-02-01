@@ -712,7 +712,7 @@ randomEmbeddings (HyperParams embeddingDimensions) vocab
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
-  deriving (Show)
+  deriving Show
 
 -- | Our parser for an embeddings file.
 instance FromJSON Embeddings where
@@ -728,7 +728,7 @@ instance FromJSON Embeddings where
           embeddings' ((k,v):xs) myEmbeddings = insert (encodeUtf8 $ toText k) (numbersFromValue v) (embeddings' xs myEmbeddings)
           numbersFromValue :: Value -> [Float]
           numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
-          numbersFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
+          numbersFromValue a = error $ "failed to parse " <> show a <> " as an Array.\n"
 
 -- | Our serializer, to produce JSON from a set of Embeddings.
 instance ToJSON Embeddings where
