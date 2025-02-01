@@ -20,17 +20,17 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Prelude (Bool(True, False), Char, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (-), concat, error, exp, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, return, show, take, zip)
+import Prelude (Bool(True, False), Char, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (-), concat, error, exp, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, read, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
-import Data.Aeson (Value(Array, Number), FromJSON(parseJSON), ToJSON(toJSON), (.=), eitherDecode, object, withObject)
+import Data.Aeson (Value(Array, Number, Object), FromJSON(parseJSON), ToJSON(toJSON), (.=), eitherDecode, object, withObject)
 
 import qualified Data.Aeson as A (encode)
 
 import Data.Aeson.Key (Key, toText)
 
-import qualified Data.Aeson.Key as AK (fromString)
+import qualified Data.Aeson.Key as AK (fromString, toString)
 
 import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
 
@@ -68,7 +68,7 @@ import Data.HashMap.Strict.InsOrd (InsOrdHashMap, empty, insert, lookup, size)
 
 import qualified Data.HashMap.Strict.InsOrd as DHSI (fromList, toRevList, toList, union)
 
-import Data.List ((++), drop, elem, foldr1, head, unfoldr, sort)
+import Data.List ((++), drop, elem, foldl, foldr1, head, unfoldr, sort)
 
 import Data.List.Extra (replace)
 
@@ -129,6 +129,7 @@ data TrainRootOpts =
     , exampleOpt :: Example
     , embeddingDimensionsOpt :: Maybe Int
     , tokenEmbeddingsOpt :: Maybe String
+    , attentionWeightsOpt :: Maybe String
     , verboseFlag :: Maybe Bool
     }
 
@@ -182,6 +183,14 @@ trainOpts =
       <> long "tokenEmbeddings"
       <> metavar "TOKENEMBEDDINGS"
       <> help "load a JSON formatted list of token embeddings"
+    )
+  )
+  <*> optional (
+  strOption
+    (    short 'a'
+      <> long "attentionWeights"
+      <> metavar "ATTENTIONWEIGHTS"
+      <> help "load a JSON formatted list of attention weights"
     )
   )
   <*> optional (
@@ -689,6 +698,92 @@ example_3_3_8 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsByteSt
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
+-- | A set of Q, K, and V weights.
+data QKV = QKV (InsOrdHashMap Char NVec2F)
+  deriving Show
+
+-- | Attention weights 101.
+data AttentionWeights = AttentionWeights (InsOrdHashMap Int QKV)
+  deriving Show
+
+-- | Parse a file of Attention Weights.
+instance FromJSON AttentionWeights where
+  parseJSON = withObject "AttentionWeights" (\v -> pure $ findAttentionWeights $ DAKM.toList v)
+    where
+      findAttentionWeights :: [(Key, Value)] -> AttentionWeights
+      findAttentionWeights maybeTokenMaps = AttentionWeights weightMaps
+        where
+          weightMaps :: InsOrdHashMap Int QKV
+          weightMaps = weightMaps' maybeTokenMaps empty
+          weightMaps' :: [(Key, Value)] -> InsOrdHashMap Int QKV -> InsOrdHashMap Int QKV
+          weightMaps' [] myTokenMaps = myTokenMaps
+          weightMaps' [(k,v)] myTokenMaps = insert (read $ AK.toString k) (qkvFromValue v) myTokenMaps
+          weightMaps' ((k,v):xs) myTokenMaps = insert (read $ AK.toString k) (qkvFromValue v) (weightMaps' xs myTokenMaps)
+          qkvFromValue :: Value -> QKV
+          qkvFromValue (Object o) = qkvFromObject $ DAKM.toList o
+          qkvFromValue v = error $ "missed!\n" <> show v <> "\n"
+          qkvFromObject :: [(Key,Value)] -> QKV
+          qkvFromObject entries@(_:_:_:[]) = makeQKV $ foldl findQKV (Nothing, Nothing, Nothing) $ cleanEntries <$> entries
+          qkvFromObject entries = error $ "wrong number of items\n" <> show (length entries) <> "\n"
+          cleanEntries (key, value) = (keyToChar key, cleanValue value)
+          keyToChar key = case AK.toString key of
+                            "Q" -> 'Q'
+                            "K" -> 'K'
+                            "V" -> 'V'
+                            a   -> error $ "Missed!\n" <> show a <> "\n"
+          cleanValue (Object a) = buildSubLists $ findSubLists <$> DAKM.toList a
+          cleanValue v = error $ "Missed!\n" <> "V: " <> show v <> "\n"
+          buildSubLists :: [(Int, [Float])] -> NVec2F
+          buildSubLists sublists@((_, firstFloats):_) = NVec2F $ fromListUnboxed (Z :. (length sublists) :. (length firstFloats)) $ concat $ [fromMaybe (error $ "sequence fail: " <> show i <> "\n") $ lookup i $ DHSI.fromList sublists | i <- [0,1.. length sublists-1]]
+          buildSubLists [] = error "no sub-lists to build.\n"
+          findSubLists :: (Key, Value) -> (Int, [Float])
+          findSubLists (key, value) = (read (AK.toString key) :: Int, floatsFromValue value)
+          floatsFromValue :: Value -> [Float]
+          floatsFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
+          floatsFromValue a = error $ "failed to parse " <> show a <> " as a Number.\n"
+          makeQKV :: (Maybe (Char, NVec2F), Maybe (Char, NVec2F), Maybe (Char, NVec2F)) -> QKV
+          makeQKV (Just q,Just k,Just v) = QKV $ DHSI.fromList [q,k,v]
+          makeQKV (a, b, c) = error $ "Missed!\n"
+                                   <> "A: " <> show a <> "\n"
+                                   <> "B: " <> show b <> "\n"
+                                   <> "C: " <> show c <> "\n"
+          findQKV :: (Maybe (Char, NVec2F), Maybe (Char, NVec2F), Maybe (Char, NVec2F)) -> (Char, NVec2F) -> (Maybe (Char, NVec2F), Maybe (Char, NVec2F), Maybe (Char, NVec2F))
+          findQKV (Nothing, k, v) ('Q', q) = (Just ('Q', q), k, v)
+          findQKV (q, Nothing, v) ('K', k) = (q, Just ('K', k), v)
+          findQKV (q, k, Nothing) ('V', v) = (q, k, Just ('V', v))
+          findQKV (q,k,v) (c, f) = error $ "Missed!\n"
+                                        <> "Q: " <> show q <> "\n"
+                                        <> "K: " <> show k <> "\n"
+                                        <> "V: " <> show v <> "\n"
+                                        <> "C: " <> show c <> "\n"
+                                        <> "F: " <> show f <> "\n"
+
+-- | Read a set of attention weights from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, produces the tensor on page 66.
+example_3_4_1 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec1F
+example_3_4_1 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsRaw attentionWeightsRaw
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention against the second token.
+  | otherwise = NVec1F $ sumS $ leftSide *^ rightSide
+  where
+    leftSide = transpose query
+    rightSide = transpose $ extend (Z :. All :. queryEmbeddingsDimensions) input2
+    input2 = slice rawTokenEmbeddings (Any :. (1 :: Int) :. All)
+    (Z :. _ :. queryEmbeddingsDimensions) = extent query
+    (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
+                                   (Left s) -> error $ show s <> "\n"
+                                   (Right w) -> w
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
 -- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
 findAttns :: NVec2F -> NVec2F
 findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ rightSide
@@ -923,6 +1018,12 @@ run rawArgs =
                  Nothing -> error "This example requires you to pass in a set of token embeddings, in JSON format."
                  Just inFile -> BSL.readFile inFile
       return input
+    readWeights :: IO BSL.ByteString
+    readWeights = do
+      input <- case attentionWeightsOpt rawArgs of
+                 Nothing -> error "This example requires you to pass in a set of attention weights, in JSON format."
+                 Just inFile -> BSL.readFile inFile
+      return input
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
@@ -1012,6 +1113,11 @@ run rawArgs =
                 <> show (example_3_3_6 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_3_3_7 hyperParams dictionary embeddings) <> "\n"
                 <> show (example_3_3_8 hyperParams dictionary embeddings) <> "\n"
+      Example (3,4) -> do
+        dictionary <- readDictionary
+        embeddings <- readEmbeddings
+        weights <- readWeights
+        putStrLn $ show (example_3_4_1 hyperParams dictionary embeddings weights) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
