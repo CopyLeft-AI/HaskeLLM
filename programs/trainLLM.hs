@@ -20,6 +20,9 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- For using :. in type declarations around show and error.
+{-# LANGUAGE TypeOperators #-}
+
 import Prelude (Bool(True, False), Char, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (-), concat, error, exp, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, read, return, show, take, zip)
 
 import qualified Prelude as PL (readFile)
