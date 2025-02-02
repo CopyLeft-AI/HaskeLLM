@@ -832,7 +832,6 @@ example_3_4_5 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
   | otherwise = res
   where
     res = NVec1F $ sumS $ keyRes *^ query2Up
-    key2 = slice keyRes (Z :. (1::Int) :. All)
     query2Up = extend (Z :. foundEmbeddingsCount :. All) $ query2
     query2 = slice queryRes (Z :. (1::Int) :. All)
     keyRes = sumS $ leftSideKey *^ rightSide
