@@ -787,6 +787,93 @@ example_3_4_1 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsRaw at
     -- a dictionary from a dictionary file.
     jsonDictionary = dictionaryFromJSON dictionary
 
+-- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing the shapes on page 67.
+example_3_4_2 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec2F
+example_3_4_2 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsRaw attentionWeightsRaw
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention against the second token.
+  | otherwise = NVec2F $ sumS $ leftSide *^ rightSide
+  where
+    leftSide = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
+    rightSide = transpose $ extend (Z :. All :. All :. queryEmbeddingsDimensions) rawTokenEmbeddings
+    (Z :. _ :. queryEmbeddingsDimensions) = extent query
+    (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
+                                   (Left s) -> error $ show s <> "\n"
+                                   (Right w) -> w
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+-- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec2F with the second shape on page 67.
+example_3_4_3 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec2F
+example_3_4_3 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsRaw attentionWeightsRaw
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention against the second token.
+  | otherwise = NVec2F $ sumS $ leftSide *^ rightSide
+  where
+    leftSide = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
+    rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
+    (Z :. _ :. keyEmbeddingsDimensions) = extent key
+    (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
+                                   (Left s) -> error $ show s <> "\n"
+                                   (Right w) -> w
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
+-- A zero dimensional vector of Floats, AKA, a single Float.
+data NVec0F = NVec0F (DAR.Array U Z Float)
+  deriving Show
+
+-- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec0F with the value at the top of page 68.
+example_3_4_4 :: HyperParams -> BSL.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec0F
+example_3_4_4 (HyperParams embeddingDimensions) dictionary tokenEmbeddingsRaw attentionWeightsRaw
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the dot product | softmax attention against the second token.
+  | otherwise = res
+  where
+    res = NVec0F $ sumS $ query2 *^ key2
+    key2 = slice keyRes (Z :. (2::Int) :. All)
+    query2 = slice queryRes (Z :. (2::Int) :. All)
+    keyRes = sumS $ leftSideKey *^ rightSide
+    queryRes = sumS $ leftSideQuery *^ rightSide
+    leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
+    leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
+    -- FIXME: this constrains query size == key size.
+    rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
+    (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    (Z :. _ :. keyEmbeddingsDimensions) = extent key
+    (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
+                                   (Left s) -> error $ show s <> "\n"
+                                   (Right w) -> w
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
+    -- a dictionary from a dictionary file.
+    jsonDictionary = dictionaryFromJSON dictionary
+
 -- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
 findAttns :: NVec2F -> NVec2F
 findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ rightSide
@@ -1121,6 +1208,11 @@ run rawArgs =
         embeddings <- readEmbeddings
         weights <- readWeights
         putStrLn $ show (example_3_4_1 hyperParams dictionary embeddings weights) <> "\n"
+                <> "keys.shape: "
+                <> show ((\(NVec2F a) -> extent a) $ example_3_4_2 hyperParams dictionary embeddings weights) <> "\n"
+                <> "keys.shape: "
+                <> show ((\(NVec2F a) -> extent a) $ example_3_4_3 hyperParams dictionary embeddings weights) <> "\n"
+                <> show (example_3_4_4 hyperParams dictionary embeddings weights) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
