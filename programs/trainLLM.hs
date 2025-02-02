@@ -35,7 +35,7 @@ import Data.Aeson.Key (Key, toText)
 
 import qualified Data.Aeson.Key as AK (fromString, toString)
 
-import BPE.Base (Id, Merges, Seq, Vocab, mergesToVocab)
+import BPE.Base (Id, Merges, Pair, Seq, Vocab, mergesToVocab)
 
 import qualified BPE.Regex as BPER (decode, encode)
 
@@ -338,47 +338,47 @@ example_2_4_3 text tokens = stringFromTokens vocab tokens
 -- When given the GPT2 vocabulary and merges files, along with the string:
 -- "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
 -- Produces the sequence of token IDs on page 33.
-example_2_5_1 :: [Char] -> BSL.ByteString -> InsOrdHashMap Id BSS.ByteString -> Seq
-example_2_5_1 text merges jsonDictionary
-  | mergeDictionary == jsonDictionary = encodeExtensionsGPT2 $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+example_2_5_1 :: [Char] -> InsOrdHashMap Pair Id -> InsOrdHashMap Id BSS.ByteString -> Seq
+example_2_5_1 text mergesTXT jsonDictionary
+  | mergeDictionary == jsonDictionary = encodeExtensionsGPT2 $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty (BSU.fromString text)
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
     -- a dictionary from a merge file.
-    mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    mergeDictionary = extendVocabGPT2 $ mergesToVocab mergesTXT initVocabGPT2
 
 -- | De-Tokenize GPT2 style.
 -- When given the GPT2 vocabulary and merges files, along with the sequence:
 -- [15496,11,466,345,588,8887,30,220,50256,554,262,4252,18250,8812,2114,286,617,34680,27271,13]
 -- Produces the same output as: "Hello, do you like tea?" <> " <|endoftext|> " <> "In the sunlit terraces of someunknownPlace."
-example_2_5_2 :: Seq -> BSL.ByteString -> InsOrdHashMap Id BSS.ByteString -> BSS.ByteString
-example_2_5_2 seq merges jsonDictionary
+example_2_5_2 :: Seq -> InsOrdHashMap Pair Id -> InsOrdHashMap Id BSS.ByteString -> BSS.ByteString
+example_2_5_2 seq mergesTXT jsonDictionary
   | mergeDictionary == jsonDictionary = respaceGPT2 $ BPER.decode jsonDictionary mempty seq
   | otherwise = error $ "Dictionaries not identical:\nTEXT: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ mergeDictionary) <> "\n"
                      <> "JSON: " <> (show $ take 100 $ drop 50200 $ sort $ DHSI.toList $ jsonDictionary) <> "\n"
   where
     -- a dictionary from a merge file.
-    mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    mergeDictionary = extendVocabGPT2 $ mergesToVocab mergesTXT initVocabGPT2
 
 -- | Count the number of tokens in the given text.
 -- Implements page 35.
-example_2_6_1 :: [Char] -> BSL.ByteString -> Extensions -> Int
-example_2_6_1 text merges extensions = length (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+example_2_6_1 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> Int
+example_2_6_1 text mergesTXT extensions = length $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
 
 -- | Return tokens 51, 52, 53, and 54.
 -- Implements the 'x' result of the top of page 36.
-example_2_6_2 :: [Char] -> BSL.ByteString -> Extensions -> Seq
-example_2_6_2 text merges extensions = take 4 $ drop 50 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+example_2_6_2 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> Seq
+example_2_6_2 text mergesTXT extensions = take 4 $ drop 50 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
 
 -- | Return tokens 52, 53, 54, and 55.
 -- Implements the 'y' result of the top of page 36.
-example_2_6_3 :: [Char] -> BSL.ByteString -> Extensions -> Seq
-example_2_6_3 text merges extensions = take 4 $ drop 51 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+example_2_6_3 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> Seq
+example_2_6_3 text mergesTXT extensions = take 4 $ drop 51 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
 
 -- | Produce an example of a next word prediction task training dataset.
 -- Implements the output with IDs and arrows in it, in the middle of page 36.
-example_2_6_4 :: [Char] -> BSL.ByteString -> Extensions -> [Char]
-example_2_6_4 text merges extensions =  rotateShow $ take 5 $ drop 50 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+example_2_6_4 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> [Char]
+example_2_6_4 text mergesTXT extensions = rotateShow $ take 5 $ drop 50 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
   where
     rotateShow [] = error "too few."
     rotateShow [_] = error "too few."
@@ -392,8 +392,8 @@ example_2_6_4 text merges extensions =  rotateShow $ take 5 $ drop 50 (encodeExt
 
 -- | Produce a human readable example of a next word prediction task training dataset.
 -- Implements the output with words and arrows in it, at the bottom of page 36.
-example_2_6_5 :: [Char] -> BSL.ByteString -> Extensions -> [Char]
-example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 50 (encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text))
+example_2_6_5 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> [Char]
+example_2_6_5 text mergesTXT extensions = BSC.unpack $ rotateShow $ take 5 $ drop 50 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
   where
     rotateShow [] = error "too few."
     rotateShow [_] = error "too few."
@@ -409,7 +409,7 @@ example_2_6_5 text merges extensions = BSC.unpack $ rotateShow $ take 5 $ drop 5
     rotateShow' a (x:y:xs) = respaceGPT2 (BPER.decode mergeDictionary mempty (a <> [x])) <> " ----> "
                              <> respaceGPT2 (BPER.decode mergeDictionary mempty [y]) <> "\n" <> rotateShow' (a <> [x]) (y:xs)
     -- a dictionary from a merge file.
-    mergeDictionary = extendVocabGPT2 $ mergesToVocab (mergesFromTXT merges) initVocabGPT2
+    mergeDictionary = extendVocabGPT2 $ mergesToVocab mergesTXT initVocabGPT2
 
 -- | A 2D vector of Ints
 data NVec2I = NVec2I (DAR.Array U DIM2 Int)
@@ -421,27 +421,27 @@ data NVec3I = NVec3I (DAR.Array U DIM3 Int)
 
 -- | Produce the first four tokens, then the second four tokens, where the second consists of the last three of the first, and the 5th token.
 -- Produces the same output as the 'first batch' output on page 39.
-example_2_6_6 :: [Char] -> BSL.ByteString -> Extensions -> NVec2I
-example_2_6_6 text merges extensions = NVec2I $ fromListUnboxed (Z :. 2 :. 4) $ concat $ [
-                                        take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ,take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ]
+example_2_6_6 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> NVec2I
+example_2_6_6 text mergesTXT extensions = NVec2I $ fromListUnboxed (Z :. 2 :. 4) $ concat $ [
+                                          take 4 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
+                                         ,take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
+                                         ]
 
 -- | Produce the second four tokens, then the third four tokens, where the second consists of the last three of the first, and the 5th token.
 -- Produces the same output as the 'second batch' output on page 39.
-example_2_6_7 :: [Char] -> BSL.ByteString -> Extensions -> NVec2I
-example_2_6_7 text merges extensions = NVec2I $ fromListUnboxed (Z :. 2 :. 4) $ concat $ [
-                                        take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ,take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ]
+example_2_6_7 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> NVec2I
+example_2_6_7 text mergesTXT extensions = NVec2I $ fromListUnboxed (Z :. 2 :. 4) $ concat $ [
+                                          take 4 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
+                                         ,take 4 $ drop 1 $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
+                                         ]
 
 -- | Produce a more realistic sample, in 3 dimensions.
 -- Produces the two tensors spanning pages 40 and 41.
-example_2_6_8 :: [Char] -> BSL.ByteString -> Extensions -> NVec3I
-example_2_6_8 text merges extensions = NVec3I $ fromListUnboxed (Z :. 2 :. 8 :. 4) $ concat $ [
-                                        take (8*4) $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ,take (8*4) $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
-                                       ]
+example_2_6_8 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> NVec3I
+example_2_6_8 text mergesTXT extensions = NVec3I $ fromListUnboxed (Z :. 2 :. 8 :. 4) $ concat $ [
+                                          take (8*4) $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
+                                         ,take (8*4) $ drop 1 $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
+                                         ]
 
 -- | Our Hyperparameters. The configuration settings of the model we are working with.
 data HyperParams =
@@ -485,8 +485,8 @@ example_2_7_3 embeddings = embeddingsToJSON embeddings
 
 -- | Get the first 32 (8*4) tokens.
 -- when given the-verdict.txt, gpt2-vocab.json, gpt2-merges.txt and 3d6-token_embeddings.json, produces the tensor in the middle of page 46.
-example_2_8_1 :: [Char] -> BSL.ByteString -> Extensions -> NVec2I
-example_2_8_1 text merges extensions = NVec2I $ fromListUnboxed (Z :. 8 :. 4) $ take (8*4) $ encodeExtensions extensions $ BPER.encode initSeqGPT2 (mergesFromTXT merges) gpt2pattern mempty (BSU.fromString text)
+example_2_8_1 :: [Char] -> InsOrdHashMap Pair Id -> Extensions -> NVec2I
+example_2_8_1 text mergesTXT extensions = NVec2I $ fromListUnboxed (Z :. 8 :. 4) $ take (8*4) $ encodeExtensions extensions $ BPER.encode initSeqGPT2 mergesTXT gpt2pattern mempty $ BSU.fromString text
 
 -- | Perform token embedding.
 -- for each sequence in the inputs, look up the tokens in the embeddings, and replace the token with the embedding.
@@ -1065,12 +1065,12 @@ run rawArgs =
                  Nothing -> error "This example requires you to pass in your own dictionary, in JSON format."
                  Just inFile -> BSL.readFile inFile
       return (dictionaryFromJSON input)
-    readMerges :: IO BSL.ByteString
-    readMerges = do
+    readTXTMerges :: IO (InsOrdHashMap Pair Id)
+    readTXTMerges = do
       input <- case mergesOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own merges file, in text format."
                  Just inFile -> BSL.readFile inFile
-      return input
+      return (mergesFromTXT input)
     readEmbeddings :: IO BSL.ByteString
     readEmbeddings = do
       input <- case tokenEmbeddingsOpt rawArgs of
@@ -1114,21 +1114,21 @@ run rawArgs =
                  <> (show $ example_2_4_3 input $ example_2_4_2 input example_2_4_String) <> "\n"
       Example (2,5) -> do
         jsonDictionary <- readJSONDictionary
-        merges <- readMerges
-        putStrLn $ "Encode:\n" <> show (example_2_5_1 example_2_5_String merges jsonDictionary) <> "\n"
-                <> "Decode:\n" <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq merges jsonDictionary) <> "\n"
-                <> "Decode(Encode):\n" <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String merges jsonDictionary) merges jsonDictionary) <> "\n"
+        mergesTXT <- readTXTMerges
+        putStrLn $ "Encode:\n" <> show (example_2_5_1 example_2_5_String mergesTXT jsonDictionary) <> "\n"
+                <> "Decode:\n" <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq mergesTXT jsonDictionary) <> "\n"
+                <> "Decode(Encode):\n" <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String mergesTXT jsonDictionary) mergesTXT jsonDictionary) <> "\n"
       Example (2,6) -> do
         input <- readInput
-        merges <- readMerges
-        putStrLn $ show (example_2_6_1 input merges extensionsGPT2) <> "\n"
-                <> "x: " <> show (example_2_6_2 input merges extensionsGPT2) <> "\n"
-                <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n" <> "\n"
-                <> example_2_6_4 input merges extensionsGPT2 <> "\n" <> "\n"
-                <> example_2_6_5 input merges extensionsGPT2 <> "\n" <> "\n"
-                <> show (example_2_6_6 input merges extensionsGPT2) <> "\n" <> "\n"
-                <> show (example_2_6_7 input merges extensionsGPT2) <> "\n" <> "\n"
-                <> show (example_2_6_8 input merges extensionsGPT2) <> "\n" <> "\n"
+        mergesTXT <- readTXTMerges
+        putStrLn $ show (example_2_6_1 input mergesTXT extensionsGPT2) <> "\n"
+                <> "x: " <> show (example_2_6_2 input mergesTXT extensionsGPT2) <> "\n"
+                <> "y:     " <> show (example_2_6_3 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
+                <> example_2_6_4 input mergesTXT extensionsGPT2 <> "\n" <> "\n"
+                <> example_2_6_5 input mergesTXT extensionsGPT2 <> "\n" <> "\n"
+                <> show (example_2_6_6 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
+                <> show (example_2_6_7 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
+                <> show (example_2_6_8 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
       Example (2,7) -> do
         jsonDictionary <- readJSONDictionary
         embeddings <- readEmbeddings
@@ -1143,9 +1143,9 @@ run rawArgs =
       Example (2,8) -> do
         jsonDictionary <- readJSONDictionary
         input <- readInput
-        merges <- readMerges
+        mergesTXT <- readTXTMerges
         let
-          res_2_8_1@(NVec2I rawRes_2_8_1) = example_2_8_1 input merges extensionsGPT2
+          res_2_8_1@(NVec2I rawRes_2_8_1) = example_2_8_1 input mergesTXT extensionsGPT2
           (Z :. res_2_8_1_H :. res_2_8_1_W) = extent rawRes_2_8_1
           res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams jsonDictionary) (res_2_8_1)
           (Z :. res_2_8_2_H :. res_2_8_2_W :. res_2_8_2_D) = extent ((\(NVec3F a) -> a) res_2_8_2)
