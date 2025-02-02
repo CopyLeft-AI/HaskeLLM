@@ -464,8 +464,8 @@ data NVec3F = NVec3F (DAR.Array U DIM3 Float)
 
 -- | Read from a JSON file and display a set of token embeddings.
 -- When given 3d6-token_embeddings.json and 6_token-vocab.json , produces the embedding layer weight matrix on page 42.
-example_2_7_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec2F
-example_2_7_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_2_7_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
+example_2_7_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -473,7 +473,6 @@ example_2_7_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
   | otherwise = tokenEmbeddings
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- | Generate a random set of embeddings.
 example_2_7_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F
@@ -522,7 +521,7 @@ example_2_8_4 (NVec3F tokenEmbeddings) (NVec2F positionalEmbeddings) =
 -- | Read from a JSON file and display a set of token embeddings.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the embeddings for the input sentence, on page 57.
 -- Note: code identical to example 2_7_1.
-example_3_3_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec2F
+example_3_3_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
 example_3_3_1 = example_2_7_1
 
 -- A one dimensional vector of Floats.
@@ -531,8 +530,8 @@ data NVec1F = NVec1F (DAR.Array U DIM1 Float)
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 58.
-example_3_3_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec1F
-example_3_3_2 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
+example_3_3_2 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -551,12 +550,11 @@ example_3_3_2 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
       where
         target = slice rawTokenEmbeddings (Any :. (itemNo :: Int) :. All)
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 59.
-example_3_3_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec1F
-example_3_3_3 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
+example_3_3_3 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -579,7 +577,6 @@ example_3_3_3 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
             (Z :. foundItems) = extent inVec
         target = slice rawTokenEmbeddings (Any :. (itemNo :: Int) :. All)
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- | For a set of token embeddings, find the dot product of a given token when compared to every other token in the set. Normalize the output using softmax.
 findAttn :: NVec2F -> Int -> NVec1F
@@ -598,8 +595,8 @@ findAttn (NVec2F rawTokenEmbeddings) itemNo
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 60.
-example_3_3_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec1F
-example_3_3_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
+example_3_3_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -609,11 +606,10 @@ example_3_3_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
   | otherwise = findAttn tokenEmbeddings 1
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the context vector at the bottom of page 60.
-example_3_3_5 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec1F
-example_3_3_5 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_5 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
+example_3_3_5 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -624,12 +620,11 @@ example_3_3_5 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
   where
     (NVec1F rawFoundAttention) = findAttn tokenEmbeddings 1
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of un-normalized attention results.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the set of attention values on page 62.
-example_3_3_6 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec2F
-example_3_3_6 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_6 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
+example_3_3_6 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -639,7 +634,6 @@ example_3_3_6 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
   | otherwise = findMyAttns
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
     -- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
     findMyAttns :: NVec2F
     findMyAttns = NVec2F $ sumS $ leftSide *^ rightSide
@@ -649,8 +643,8 @@ example_3_3_6 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 63.
-example_3_3_7 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec2F
-example_3_3_7 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_7 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
+example_3_3_7 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -660,12 +654,11 @@ example_3_3_7 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
   | otherwise = findAttns tokenEmbeddings
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the context vectors on page 63.
-example_3_3_8 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> NVec2F
-example_3_3_8 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsByteStream
+example_3_3_8 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
+example_3_3_8 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -676,7 +669,6 @@ example_3_3_8 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsBy
   where
     (NVec2F rawFoundAttention) = findAttns tokenEmbeddings
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    tokenEmbeddings@(NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsByteStream
 
 -- | A set of Q, K, and V weights.
 data QKV = QKV (InsOrdHashMap Char NVec2F)
@@ -740,8 +732,8 @@ instance FromJSON AttentionWeights where
 
 -- | Read a set of attention weights from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, produces the tensor on page 66.
-example_3_4_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec1F
-example_3_4_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRaw attentionWeightsRaw
+example_3_4_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec1F
+example_3_4_1 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -756,16 +748,12 @@ example_3_4_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRa
     (Z :. _ :. queryEmbeddingsDimensions) = extent query
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
-                                   (Left s) -> error $ show s <> "\n"
-                                   (Right w) -> w
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
 
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing the shapes on page 67.
-example_3_4_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec2F
-example_3_4_2 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRaw attentionWeightsRaw
+example_3_4_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
+example_3_4_2 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -779,16 +767,12 @@ example_3_4_2 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRa
     (Z :. _ :. queryEmbeddingsDimensions) = extent query
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
-                                   (Left s) -> error $ show s <> "\n"
-                                   (Right w) -> w
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
 
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec2F with the second shape on page 67.
-example_3_4_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString-> BSL.ByteString -> BSL.ByteString -> NVec2F
-example_3_4_3 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRaw attentionWeightsRaw
+example_3_4_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString-> NVec2F -> AttentionWeights -> NVec2F
+example_3_4_3 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -802,11 +786,7 @@ example_3_4_3 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRa
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
-                                   (Left s) -> error $ show s <> "\n"
-                                   (Right w) -> w
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
 
 -- A zero dimensional vector of Floats, AKA, a single Float.
 data NVec0F = NVec0F (DAR.Array U Z Float)
@@ -814,8 +794,8 @@ data NVec0F = NVec0F (DAR.Array U Z Float)
 
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec0F with the value at the top of page 68.
-example_3_4_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> BSL.ByteString -> BSL.ByteString -> NVec0F
-example_3_4_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRaw attentionWeightsRaw
+example_3_4_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec0F
+example_3_4_4 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -837,11 +817,7 @@ example_3_4_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddingsRa
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    (AttentionWeights weights) = case eitherDecode attentionWeightsRaw :: Either String AttentionWeights of
-                                   (Left s) -> error $ show s <> "\n"
-                                   (Right w) -> w
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-    (NVec2F rawTokenEmbeddings) = embeddingsFromJSON tokenEmbeddingsRaw
 
 -- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
 findAttns :: NVec2F -> NVec2F
@@ -1059,30 +1035,35 @@ run rawArgs =
                  Nothing -> getContents
                  Just inFile -> PL.readFile inFile
       return input
-    readJSONDictionary :: IO (InsOrdHashMap Id BSS.ByteString)
-    readJSONDictionary = do
+    readDictionary :: IO (InsOrdHashMap Id BSS.ByteString)
+    readDictionary = do
       input <- case dictionaryOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own dictionary, in JSON format."
                  Just inFile -> BSL.readFile inFile
       return (dictionaryFromJSON input)
-    readTXTMerges :: IO (InsOrdHashMap Pair Id)
-    readTXTMerges = do
+    readMerges :: IO (InsOrdHashMap Pair Id)
+    readMerges = do
       input <- case mergesOpt rawArgs of
                  Nothing -> error "This example requires you to pass in your own merges file, in text format."
                  Just inFile -> BSL.readFile inFile
       return (mergesFromTXT input)
-    readEmbeddings :: IO BSL.ByteString
+    readEmbeddings :: IO NVec2F
     readEmbeddings = do
       input <- case tokenEmbeddingsOpt rawArgs of
                  Nothing -> error "This example requires you to pass in a set of token embeddings, in JSON format."
                  Just inFile -> BSL.readFile inFile
-      return input
-    readWeights :: IO BSL.ByteString
+      return (embeddingsFromJSON input)
+    readWeights :: IO AttentionWeights
     readWeights = do
       input <- case attentionWeightsOpt rawArgs of
                  Nothing -> error "This example requires you to pass in a set of attention weights, in JSON format."
                  Just inFile -> BSL.readFile inFile
-      return input
+      return (getWeights input)
+        where
+          getWeights input = case eitherDecode input :: Either String AttentionWeights of
+                               (Left s) -> error $ show s <> "\n"
+                               (Right w) -> w
+
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
@@ -1113,41 +1094,41 @@ run rawArgs =
                  <> (show $ example_2_4_2 input example_2_4_String) <> "\n"
                  <> (show $ example_2_4_3 input $ example_2_4_2 input example_2_4_String) <> "\n"
       Example (2,5) -> do
-        jsonDictionary <- readJSONDictionary
-        mergesTXT <- readTXTMerges
-        putStrLn $ "Encode:\n" <> show (example_2_5_1 example_2_5_String mergesTXT jsonDictionary) <> "\n"
-                <> "Decode:\n" <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq mergesTXT jsonDictionary) <> "\n"
-                <> "Decode(Encode):\n" <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String mergesTXT jsonDictionary) mergesTXT jsonDictionary) <> "\n"
+        dictionary <- readDictionary
+        merges <- readMerges
+        putStrLn $ "Encode:\n" <> show (example_2_5_1 example_2_5_String merges dictionary) <> "\n"
+                <> "Decode:\n" <> show (respaceGPT2 $ example_2_5_2 example_2_5_Seq merges dictionary) <> "\n"
+                <> "Decode(Encode):\n" <> show (respaceGPT2 $ example_2_5_2 (example_2_5_1 example_2_5_String merges dictionary) merges dictionary) <> "\n"
       Example (2,6) -> do
         input <- readInput
-        mergesTXT <- readTXTMerges
-        putStrLn $ show (example_2_6_1 input mergesTXT extensionsGPT2) <> "\n"
-                <> "x: " <> show (example_2_6_2 input mergesTXT extensionsGPT2) <> "\n"
-                <> "y:     " <> show (example_2_6_3 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
-                <> example_2_6_4 input mergesTXT extensionsGPT2 <> "\n" <> "\n"
-                <> example_2_6_5 input mergesTXT extensionsGPT2 <> "\n" <> "\n"
-                <> show (example_2_6_6 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
-                <> show (example_2_6_7 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
-                <> show (example_2_6_8 input mergesTXT extensionsGPT2) <> "\n" <> "\n"
+        merges <- readMerges
+        putStrLn $ show (example_2_6_1 input merges extensionsGPT2) <> "\n"
+                <> "x: " <> show (example_2_6_2 input merges extensionsGPT2) <> "\n"
+                <> "y:     " <> show (example_2_6_3 input merges extensionsGPT2) <> "\n" <> "\n"
+                <> example_2_6_4 input merges extensionsGPT2 <> "\n" <> "\n"
+                <> example_2_6_5 input merges extensionsGPT2 <> "\n" <> "\n"
+                <> show (example_2_6_6 input merges extensionsGPT2) <> "\n" <> "\n"
+                <> show (example_2_6_7 input merges extensionsGPT2) <> "\n" <> "\n"
+                <> show (example_2_6_8 input merges extensionsGPT2) <> "\n" <> "\n"
       Example (2,7) -> do
-        jsonDictionary <- readJSONDictionary
+        dictionary <- readDictionary
         embeddings <- readEmbeddings
         putStrLn $ show hyperParams <> "\n"
-                <> show (example_2_7_1 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_2_7_2 hyperParams jsonDictionary) <> "\n"
-                <> BSC.unpack (BSL.toStrict $ example_2_7_3 $ example_2_7_2 hyperParams jsonDictionary) <> "\n"
+                <> show (example_2_7_1 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_2_7_2 hyperParams dictionary) <> "\n"
+                <> BSC.unpack (BSL.toStrict $ example_2_7_3 $ example_2_7_2 hyperParams dictionary) <> "\n"
                 -- Perform the lookup at the bottom of page 42, returning the tensor at the top of page 43.
-                <> show [DAR.toList $ (\(NVec2F a) -> slice a (Any :. (v:: Int) :. All)) $ example_2_7_1 hyperParams jsonDictionary embeddings| v <- [3]] <> "\n"
+                <> show [DAR.toList $ (\(NVec2F a) -> slice a (Any :. (v:: Int) :. All)) $ example_2_7_1 hyperParams dictionary embeddings| v <- [3]] <> "\n"
                 -- Perform the lookup in the middle of page 43, returning the 4 tensors given there.
-                <> show [DAR.toList $ (\(NVec2F a) -> slice a (Any :. (v:: Int) :. All)) $ example_2_7_1 hyperParams jsonDictionary embeddings| v <- [2,3,5,1]] <> "\n"
+                <> show [DAR.toList $ (\(NVec2F a) -> slice a (Any :. (v:: Int) :. All)) $ example_2_7_1 hyperParams dictionary embeddings| v <- [2,3,5,1]] <> "\n"
       Example (2,8) -> do
-        jsonDictionary <- readJSONDictionary
+        dictionary <- readDictionary
         input <- readInput
-        mergesTXT <- readTXTMerges
+        merges <- readMerges
         let
-          res_2_8_1@(NVec2I rawRes_2_8_1) = example_2_8_1 input mergesTXT extensionsGPT2
+          res_2_8_1@(NVec2I rawRes_2_8_1) = example_2_8_1 input merges extensionsGPT2
           (Z :. res_2_8_1_H :. res_2_8_1_W) = extent rawRes_2_8_1
-          res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams jsonDictionary) (res_2_8_1)
+          res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams dictionary) (res_2_8_1)
           (Z :. res_2_8_2_H :. res_2_8_2_W :. res_2_8_2_D) = extent ((\(NVec3F a) -> a) res_2_8_2)
           res_2_8_3 = example_2_8_3 ((\(HyperParams v) -> v) hyperParams) 4
           (Z :. res_2_8_3_H :. res_2_8_3_W) = extent ((\(NVec2F a) -> a) res_2_8_3)
@@ -1160,28 +1141,28 @@ run rawArgs =
                   <> show res_2_8_3 <> "\nInputs shape: [" <> show res_2_8_3_H <> "," <> show res_2_8_3_W <> "]\n"
                   <> show res_2_8_4 <> "\nInputs shape: [" <> show res_2_8_4_H <> "," <> show res_2_8_4_W <> "," <> show res_2_8_4_D <> "]\n"
       Example (3,3) -> do
-        jsonDictionary <- readJSONDictionary
+        dictionary <- readDictionary
         embeddings <- readEmbeddings
         putStrLn $ show hyperParams <> "\n"
-                <> show (example_3_3_1 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_3_3_2 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_3_3_3 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (sumS ((\(NVec1F a) -> a) $ example_3_3_3 hyperParams jsonDictionary embeddings)) <> "\n"
-                <> show (example_3_3_4 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_3_3_5 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_3_3_6 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_3_3_7 hyperParams jsonDictionary embeddings) <> "\n"
-                <> show (example_3_3_8 hyperParams jsonDictionary embeddings) <> "\n"
+                <> show (example_3_3_1 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_2 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_3 hyperParams dictionary embeddings) <> "\n"
+                <> show (sumS ((\(NVec1F a) -> a) $ example_3_3_3 hyperParams dictionary embeddings)) <> "\n"
+                <> show (example_3_3_4 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_5 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_6 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_7 hyperParams dictionary embeddings) <> "\n"
+                <> show (example_3_3_8 hyperParams dictionary embeddings) <> "\n"
       Example (3,4) -> do
-        jsonDictionary <- readJSONDictionary
+        dictionary <- readDictionary
         embeddings <- readEmbeddings
-        weights <- readWeights
-        putStrLn $ show (example_3_4_1 hyperParams jsonDictionary embeddings weights) <> "\n"
+        jsonWeights <- readWeights
+        putStrLn $ show (example_3_4_1 hyperParams dictionary embeddings jsonWeights) <> "\n"
                 <> "keys.shape: "
-                <> show ((\(NVec2F a) -> extent a) $ example_3_4_2 hyperParams jsonDictionary embeddings weights) <> "\n"
+                <> show ((\(NVec2F a) -> extent a) $ example_3_4_2 hyperParams dictionary embeddings jsonWeights) <> "\n"
                 <> "keys.shape: "
-                <> show ((\(NVec2F a) -> extent a) $ example_3_4_3 hyperParams jsonDictionary embeddings weights) <> "\n"
-                <> show (example_3_4_4 hyperParams jsonDictionary embeddings weights) <> "\n"
+                <> show ((\(NVec2F a) -> extent a) $ example_3_4_3 hyperParams dictionary embeddings jsonWeights) <> "\n"
+                <> show (example_3_4_4 hyperParams dictionary embeddings jsonWeights) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
