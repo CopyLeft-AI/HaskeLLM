@@ -478,6 +478,15 @@ example_2_7_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(
 example_2_7_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F
 example_2_7_2 hyperParams jsonDictionary = randomEmbeddings hyperParams jsonDictionary
 
+-- | Generate a random set of embeddings.
+randomEmbeddings :: HyperParams -> Vocab -> NVec2F
+randomEmbeddings (HyperParams embeddingDimensions) vocab
+  | otherwise = NVec2F $ fromListUnboxed (Z :. vocabLength :. embeddingDimensions) $ concat [mkRandomEmbedding (mkStdGen v) | v <- [0,1..vocabLength-1]]
+    where
+      mkRandomEmbedding :: StdGen -> [Float]
+      mkRandomEmbedding = take embeddingDimensions . unfoldr (Just . uniformR (-3,3))
+      vocabLength = length vocab
+
 -- | Generate a set of embeddings as JSON. So that we can serialize our set, for tracking purposes.
 example_2_7_3 :: NVec2F -> BSL.ByteString
 example_2_7_3 embeddings = embeddingsToJSON embeddings
@@ -669,6 +678,18 @@ example_3_3_8 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(
   where
     (NVec2F rawFoundAttention) = findAttns tokenEmbeddings
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
+-- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
+findAttns :: NVec2F -> NVec2F
+findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ rightSide
+  where
+    leftSide = extend (Z :. (foundEmbeddingsCount) :. All :. All) rawTokenEmbeddings
+    rightSide = extend (Z :. All :. (foundEmbeddingsCount) :. All) rawTokenEmbeddings
+    (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
+    softMax :: NVec2F -> NVec2F
+    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
+      where
+        (Z :. foundItems :. _) = extent inRawVec
 
 -- | A set of Q, K, and V weights.
 data QKV = QKV (InsOrdHashMap Char NVec2F)
@@ -953,27 +974,6 @@ example_3_4_8 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
     (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
-
--- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
-findAttns :: NVec2F -> NVec2F
-findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ rightSide
-  where
-    leftSide = extend (Z :. (foundEmbeddingsCount) :. All :. All) rawTokenEmbeddings
-    rightSide = extend (Z :. All :. (foundEmbeddingsCount) :. All) rawTokenEmbeddings
-    (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
-    softMax :: NVec2F -> NVec2F
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
-      where
-        (Z :. foundItems :. _) = extent inRawVec
-
--- | Generate a random set of embeddings.
-randomEmbeddings :: HyperParams -> Vocab -> NVec2F
-randomEmbeddings (HyperParams embeddingDimensions) vocab
-  | otherwise = NVec2F $ fromListUnboxed (Z :. vocabLength :. embeddingDimensions) $ concat [mkRandomEmbedding (mkStdGen v) | v <- [0,1..vocabLength-1]]
-    where
-      mkRandomEmbedding :: StdGen -> [Float]
-      mkRandomEmbedding = take embeddingDimensions . unfoldr (Just . uniformR (-3,3))
-      vocabLength = length vocab
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
