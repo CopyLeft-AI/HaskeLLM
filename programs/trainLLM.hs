@@ -131,6 +131,7 @@ data TrainRootOpts =
     , mergesOpt :: Maybe String
     , exampleOpt :: Example
     , embeddingDimensionsOpt :: Maybe Int
+    , attentionWeightDimensionsOpt :: Maybe Int
     , tokenEmbeddingsOpt :: Maybe String
     , attentionWeightsOpt :: Maybe String
     , verboseFlag :: Maybe Bool
@@ -177,6 +178,14 @@ trainOpts =
     (    long "embeddingDimensions"
       <> short 'c'
       <> help "the number of dimensions each embedding gets"
+      <> metavar "DIMENSIONS"
+    ) :: Parser Int
+  )
+  <*> optional (
+  option auto
+    (    long "attentionWeightDimensions"
+      <> short 'w'
+      <> help "the number of dimensions each attention weight gets"
       <> metavar "DIMENSIONS"
     ) :: Parser Int
   )
@@ -448,6 +457,7 @@ data HyperParams =
   HyperParams
     {
       embeddingDim :: Int -- How many dimensions our embeddings will be.
+    , attentionWeightDim :: Int -- How many dimensions our attention weights will be.
     }
   deriving Show
 
@@ -465,7 +475,7 @@ data NVec3F = NVec3F (DAR.Array U DIM3 Float)
 -- | Read from a JSON file and display a set of token embeddings.
 -- When given 3d6-token_embeddings.json and 6_token-vocab.json , produces the embedding layer weight matrix on page 42.
 example_2_7_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
-example_2_7_1 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_2_7_1 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -480,7 +490,7 @@ example_2_7_2 hyperParams jsonDictionary = randomEmbeddings hyperParams jsonDict
 
 -- | Generate a random set of embeddings.
 randomEmbeddings :: HyperParams -> Vocab -> NVec2F
-randomEmbeddings (HyperParams embeddingDimensions) vocab
+randomEmbeddings (HyperParams embeddingDimensions _) vocab
   | otherwise = NVec2F $ fromListUnboxed (Z :. vocabLength :. embeddingDimensions) $ concat [mkRandomEmbedding (mkStdGen v) | v <- [0,1..vocabLength-1]]
     where
       mkRandomEmbedding :: StdGen -> [Float]
@@ -540,7 +550,7 @@ data NVec1F = NVec1F (DAR.Array U DIM1 Float)
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 58.
 example_3_3_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
-example_3_3_2 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings)
+example_3_3_2 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -563,7 +573,7 @@ example_3_3_2 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 59.
 example_3_3_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
-example_3_3_3 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings)
+example_3_3_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -605,7 +615,7 @@ findAttn (NVec2F rawTokenEmbeddings) itemNo
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 60.
 example_3_3_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
-example_3_3_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_3_3_4 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -618,7 +628,7 @@ example_3_3_4 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(
 
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the context vector at the bottom of page 60.
 example_3_3_5 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec1F
-example_3_3_5 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_3_3_5 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -633,7 +643,7 @@ example_3_3_5 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(
 -- | Read a set of token embeddings from a JSON file, and calculate a set of un-normalized attention results.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the set of attention values on page 62.
 example_3_3_6 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
-example_3_3_6 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings)
+example_3_3_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -653,7 +663,7 @@ example_3_3_6 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 63.
 example_3_3_7 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
-example_3_3_7 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_3_3_7 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -667,7 +677,7 @@ example_3_3_7 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the context vectors on page 63.
 example_3_3_8 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
-example_3_3_8 (HyperParams embeddingDimensions) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_3_3_8 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -754,7 +764,7 @@ instance FromJSON AttentionWeights where
 -- | Read a set of attention weights from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, produces the tensor on page 66.
 example_3_4_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec1F
-example_3_4_1 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_1 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -774,7 +784,7 @@ example_3_4_1 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing the shapes on page 67.
 example_3_4_2 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
-example_3_4_2 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_2 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -793,7 +803,7 @@ example_3_4_2 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec2F with the second shape on page 67.
 example_3_4_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString-> NVec2F -> AttentionWeights -> NVec2F
-example_3_4_3 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -816,7 +826,7 @@ data NVec0F = NVec0F (DAR.Array U Z Float)
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec0F with the value at the top of page 68.
 example_3_4_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec0F
-example_3_4_4 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_4 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -843,7 +853,7 @@ example_3_4_4 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of attention weights from a JSON file, and calculate a set of keys and values for all of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec1F with the set of six values near the top of page 68.
 example_3_4_5 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec1F
-example_3_4_5 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_5 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -870,7 +880,7 @@ example_3_4_5 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of attention weights from a JSON file, and calculate a set of attention weights for all of the given tokens.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec1F with the set of six values near the top of page 69.
 example_3_4_6 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec1F
-example_3_4_6 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -904,7 +914,7 @@ example_3_4_6 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing an NVec1F with the set of two values near the top of page 70.
 example_3_4_7 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec1F
-example_3_4_7 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_7 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -942,7 +952,7 @@ example_3_4_7 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
 -- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights.json, ultimately producing the set of 12 values (divided into 6x2) near the middle of page 71.
 example_3_4_8 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
-example_3_4_8 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+example_3_4_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -974,6 +984,31 @@ example_3_4_8 (HyperParams embeddingDimensions) jsonDictionary (NVec2F rawTokenE
     (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
+-- We skip example 3_4_9, as that is just proving we can read weights.
+
+-- | Generate a random set of attention weights that has a uniform distribution, similar to the 'nn.linear' python module.
+example_3_4_10 :: HyperParams -> AttentionWeights
+example_3_4_10 (HyperParams embeddingDims attentionWeightDims) = res
+  where
+    res = randomAttentionWeights embeddingDims attentionWeightDims 789
+
+-- | Generate a random set of attention weights that has a uniform distribution, similar to the 'nn.linear' python module.
+randomAttentionWeights :: Int -> Int -> Int -> AttentionWeights
+randomAttentionWeights inputEmbeddings outputEmbeddings mySeed = AttentionWeights $ DHSI.fromList [(0,makeRandomQKV mySeed)]
+  where
+    makeRandomQKV :: Int -> QKV
+    makeRandomQKV seed = QKV $ insert 'V' (makeRandomEmbedding (mkStdGen seed))
+                             $ insert 'K' (makeRandomEmbedding (mkStdGen $ seed+1))
+                             $ insert 'Q' (makeRandomEmbedding (mkStdGen $ seed+2))
+                             $ empty
+    makeRandomEmbedding :: StdGen -> NVec2F
+    makeRandomEmbedding = NVec2F . fromListUnboxed (Z :. inputEmbeddings :. outputEmbeddings) . take (inputEmbeddings * outputEmbeddings) . unfoldr (Just . uniformR (-1,1))
+
+-- | Calculate a context vector for the second token.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights-3_4_10.json, ultimately producing the set of 12 values (divided into 6x2) near the middle of page 73.
+example_3_4_11 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
+example_3_4_11 = example_3_4_8
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
@@ -1203,11 +1238,18 @@ run rawArgs =
                   Nothing -> False
                   Just a -> a
     hyperParams :: HyperParams
-    hyperParams = case embeddingDimensionsOpt rawArgs of
+    hyperParams = HyperParams maybeEmbeddingDimensions maybeAttentionWeightDimensions
+      where
+        maybeEmbeddingDimensions = case embeddingDimensionsOpt rawArgs of
                     Nothing -> error "This example requires you to specify a number of dimensions each embedding recieves."
                     Just a -> if a < 1
                               then error "You must specify a positive number of dimensions for your embeddings."
-                              else HyperParams a
+                              else a
+        maybeAttentionWeightDimensions = case attentionWeightDimensionsOpt rawArgs of
+                    Nothing -> error "This example requires you to specify a number of dimensions each attention weight recieves."
+                    Just a -> if a < 1
+                              then error "You must specify a positive number of dimensions for your attention weights."
+                              else a
   in
     case exampleOpt rawArgs of
       Example (2,1) -> do
@@ -1265,7 +1307,7 @@ run rawArgs =
           (Z :. res_2_8_1_H :. res_2_8_1_W) = extent rawRes_2_8_1
           res_2_8_2 = example_2_8_2 (randomEmbeddings hyperParams dictionary) (res_2_8_1)
           (Z :. res_2_8_2_H :. res_2_8_2_W :. res_2_8_2_D) = extent ((\(NVec3F a) -> a) res_2_8_2)
-          res_2_8_3 = example_2_8_3 ((\(HyperParams v) -> v) hyperParams) 4
+          res_2_8_3 = example_2_8_3 ((\(HyperParams v _) -> v) hyperParams) 4
           (Z :. res_2_8_3_H :. res_2_8_3_W) = extent ((\(NVec2F a) -> a) res_2_8_3)
           res_2_8_4 = example_2_8_4 res_2_8_2 res_2_8_3
           (Z :. res_2_8_4_H :. res_2_8_4_W :. res_2_8_4_D) = extent ((\(NVec3F a) -> a) res_2_8_4)
@@ -1302,6 +1344,9 @@ run rawArgs =
                 <> show (example_3_4_6 hyperParams dictionary embeddings jsonWeights) <> "\n"
                 <> show (example_3_4_7 hyperParams dictionary embeddings jsonWeights) <> "\n"
                 <> show (example_3_4_8 hyperParams dictionary embeddings jsonWeights) <> "\n"
+                <> show jsonWeights <> "\n"
+                <> show (example_3_4_10 hyperParams) <> "\n"
+                <> show (example_3_4_11 hyperParams dictionary embeddings jsonWeights) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
