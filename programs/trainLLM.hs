@@ -973,12 +973,12 @@ example_3_4_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     leftSideValues = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose values
-    -- FIXME: this constrains query size == key size.
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
     softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
       where
         (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    -- FIXME: this constrains query size == key size.
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
@@ -1009,6 +1009,36 @@ randomAttentionWeights inputEmbeddings outputEmbeddings mySeed = AttentionWeight
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights-3_4_10.json, ultimately producing the set of 12 values (divided into 6x2) near the middle of page 73.
 example_3_4_11 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
 example_3_4_11 = example_3_4_8
+
+-- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights-3_4_10.json, ultimately producing the set of 36 values (divided into 6x6) toward the bottom of page 75.
+example_3_5_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
+example_3_5_1 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the modified dot product | softmax attention against the second token.
+  | otherwise = res
+  where
+    res = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
+    moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
+    queryRes = sumS $ leftSideQuery *^ rightSide
+    keyRes = sumS $ leftSideKey *^ rightSide
+    leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
+    leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
+    rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
+    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
+      where
+        (Z :. _ :. foundItems) = extent inRawVec
+    (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    -- FIXME: this constrains query size == key size.
+    (Z :. _ :. keyEmbeddingsDimensions) = extent key
+    (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
@@ -1333,20 +1363,25 @@ run rawArgs =
       Example (3,4) -> do
         dictionary <- readDictionary
         embeddings <- readEmbeddings
-        jsonWeights <- readWeights
-        putStrLn $ show (example_3_4_1 hyperParams dictionary embeddings jsonWeights) <> "\n"
+        attentionWeights <- readWeights
+        putStrLn $ show (example_3_4_1 hyperParams dictionary embeddings attentionWeights) <> "\n"
                 <> "keys.shape: "
-                <> show ((\(NVec2F a) -> extent a) $ example_3_4_2 hyperParams dictionary embeddings jsonWeights) <> "\n"
+                <> show ((\(NVec2F a) -> extent a) $ example_3_4_2 hyperParams dictionary embeddings attentionWeights) <> "\n"
                 <> "keys.shape: "
-                <> show ((\(NVec2F a) -> extent a) $ example_3_4_3 hyperParams dictionary embeddings jsonWeights) <> "\n"
-                <> show (example_3_4_4 hyperParams dictionary embeddings jsonWeights) <> "\n"
-                <> show (example_3_4_5 hyperParams dictionary embeddings jsonWeights) <> "\n"
-                <> show (example_3_4_6 hyperParams dictionary embeddings jsonWeights) <> "\n"
-                <> show (example_3_4_7 hyperParams dictionary embeddings jsonWeights) <> "\n"
-                <> show (example_3_4_8 hyperParams dictionary embeddings jsonWeights) <> "\n"
-                <> show jsonWeights <> "\n"
+                <> show ((\(NVec2F a) -> extent a) $ example_3_4_3 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show (example_3_4_4 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show (example_3_4_5 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show (example_3_4_6 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show (example_3_4_7 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show (example_3_4_8 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show attentionWeights <> "\n"
                 <> show (example_3_4_10 hyperParams) <> "\n"
-                <> show (example_3_4_11 hyperParams dictionary embeddings jsonWeights) <> "\n"
+                <> show (example_3_4_11 hyperParams dictionary embeddings attentionWeights) <> "\n"
+      Example (3,5) -> do
+        dictionary <- readDictionary
+        embeddings <- readEmbeddings
+        attentionWeights <- readWeights
+        putStrLn $ show (example_3_5_1 hyperParams dictionary embeddings attentionWeights) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
