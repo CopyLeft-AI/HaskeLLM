@@ -1040,6 +1040,13 @@ example_3_5_1 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
+-- | Generate an attention weight matrix where the attention weights above the diagonal are zero, and everything else is 1.
+-- When given 6_token-vocab.json, produces the tensor at the top of page 76.
+example_3_5_2 :: NVec2F -> NVec2F
+example_3_5_2 (NVec2F rawTokenEmbeddings) = NVec2F $ fromListUnboxed (Z :. embeddingsCount :. embeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..embeddingsCount]] | x <- [1,2..embeddingsCount]]
+  where
+    (Z :. embeddingsCount :. _) = extent rawTokenEmbeddings
+
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
   deriving Show
@@ -1382,6 +1389,7 @@ run rawArgs =
         embeddings <- readEmbeddings
         attentionWeights <- readWeights
         putStrLn $ show (example_3_5_1 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show (example_3_5_2 embeddings) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
