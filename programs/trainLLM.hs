@@ -91,7 +91,7 @@ import Data.Word (Word8)
 
 import Options.Applicative (Parser, ReadM, auto, execParser, fullDesc, header, help, helper, info, long, metavar, option, optional, progDesc, short, str, strOption, switch)
 
-import System.Random (StdGen, mkStdGen, uniformR)
+import System.Random (StdGen, mkStdGen, uniformR, random)
 
 -- | A type for encoding an example number.
 data Example =
@@ -134,6 +134,7 @@ data TrainRootOpts =
     , attentionWeightDimensionsOpt :: Maybe Int
     , tokenEmbeddingsOpt :: Maybe String
     , attentionWeightsOpt :: Maybe String
+    , dropoutMapOpt :: Maybe String
     , verboseFlag :: Maybe Bool
     }
 
@@ -203,6 +204,14 @@ trainOpts =
       <> long "attentionWeights"
       <> metavar "ATTENTIONWEIGHTS"
       <> help "load a JSON formatted list of attention weights"
+    )
+  )
+  <*> optional (
+  strOption
+    (    short 'm'
+      <> long "dropoutmMap"
+      <> metavar "DROPOUTMAP"
+      <> help "load a JSON formatted dropout map"
     )
   )
   <*> optional (
@@ -1116,6 +1125,102 @@ example_3_5_4 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
+-- | A type for a dropout map, as they come out of the JSON file.
+data DropoutMap = DropoutMap (InsOrdHashMap BSS.ByteString [Float])
+  deriving Show
+
+-- | Our parser for a dropout map.
+instance FromJSON DropoutMap where
+  parseJSON = withObject "DropoutMap" (\v -> pure $ findDropoutMap $ DAKM.toList v)
+    where
+      findDropoutMap :: [(Key, Value)] -> DropoutMap
+      findDropoutMap maybeDropoutMap = DropoutMap dropoutmap
+        where
+          dropoutmap = dropoutmap' maybeDropoutMap empty
+          dropoutmap' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString [Float] -> InsOrdHashMap BSS.ByteString [Float]
+          dropoutmap' [] myDropoutMap = myDropoutMap
+          dropoutmap' [(k,v)] myDropoutMap = insert (encodeUtf8 $ toText k) (numbersFromValue v) myDropoutMap
+          dropoutmap' ((k,v):xs) myDropoutMap = insert (encodeUtf8 $ toText k) (numbersFromValue v) (dropoutmap' xs myDropoutMap)
+          numbersFromValue :: Value -> [Float]
+          numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
+          numbersFromValue a = error $ "failed to parse " <> show a <> " as an Array.\n"
+
+-- | Our serializer, to produce JSON from a set of DropoutMap.
+instance ToJSON DropoutMap where
+  toJSON (DropoutMap rawDropoutMap) = toJSON $ object $ (\(a,b) -> AK.fromString (BSC.unpack a) .= b) <$> DHSI.toList rawDropoutMap
+
+-- | Fill a ByteString with the JSON formatted form of the given set of dropoutmap.
+{-
+dropoutMapToJSON :: NVec2F -> BSL.ByteString
+dropoutMapToJSON nVec2f
+  | otherwise = A.encode $ dropoutmapFromTensor nVec2f
+    where
+      dropoutmapFromTensor (NVec2F rawDropoutMap) = DropoutMap $ DHSI.fromList $ zip [BSL.toStrict $ toByteString v | v <- [0,1 .. length sequences-1]] sequences
+        where
+          sequences = [DAR.toList rawDropoutMap]
+-}
+
+-- | Read a dropout map from a JSON formatted map of number to list of N sets of N floats. where N is your vocabulary length.
+dropoutMapFromJSON :: BSL.ByteString -> NVec2F
+dropoutMapFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawDropoutMap) :. firstDropoutMapLength) dropoutmapList
+  where
+    (DropoutMap rawDropoutMap) = case eitherDecode json :: Either String DropoutMap of
+                                   Left err -> error $ "parse error when reading dropoutmap:\n" <> err <> "\n" <> show json <> "\n"
+                                   Right d -> d
+    -- By performing lookup from 0-size rawDropoutMap, we ensure a consistent space, with no gaps.
+    dropoutmapList = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawDropoutMap) <$> [0,1..size rawDropoutMap-1]
+    firstDropoutMapLength = length $ fromMaybe (error "failed to lookup first dropoutmap (0).") $ lookup "0" rawDropoutMap
+
+-- | Generate a dropout mask matrix where the values are either 0 or 2, randomly..
+-- When given 6_token-vocab.json, produces the tensor at the bottom of page 79.
+example_3_5_5 :: NVec2F -> Int -> NVec2F
+example_3_5_5 (NVec2F rawTokenEmbeddings) mySeed = NVec2F $ fromListUnboxed (Z :. embeddingsCount :. embeddingsCount) $ zeroToTwo <$> take (embeddingsCount*embeddingsCount) (yesNo $ mkStdGen mySeed)
+  where
+    zeroToTwo :: Bool -> Float
+    zeroToTwo False = 0
+    zeroToTwo True = 2
+    yesNo :: StdGen -> [Bool]
+    yesNo = unfoldr (Just . random)
+    (Z :. embeddingsCount :. _) = extent rawTokenEmbeddings
+
+-- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, 3d6-weights-3_4_10.json, and 3d6-dropout_mask.json, ultimately producing the set of 36 values (divided into 6x6) near the top of page 80.
+example_3_5_6 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F -> NVec2F
+example_3_5_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec2F rawDropoutMap)
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- Find the modified dot product | softmax attention against the second token.
+  | otherwise = res
+  where
+    res = NVec2F $ computeS $ rawDropoutMap *^ droppedKeyQuery
+    (NVec2F droppedKeyQuery) = simpleNorm $ NVec2F $ computeS $ keyQuery *^ futureDrop
+    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
+    moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
+    queryRes = sumS $ leftSideQuery *^ rightSide
+    keyRes = sumS $ leftSideKey *^ rightSide
+    leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
+    leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
+    rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
+    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
+      where
+        (Z :. _ :. foundItems) = extent inRawVec
+    simpleNorm :: NVec2F -> NVec2F
+    simpleNorm (NVec2F inRawVec) = NVec2F $ computeS $ inRawVec /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS inRawVec)
+      where
+        (Z :. _ :. foundItems) = extent inRawVec
+    (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    -- FIXME: this constrains query size == key size.
+    (Z :. _ :. keyEmbeddingsDimensions) = extent key
+    (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    futureDrop :: DAR.Array U DIM2 Float
+    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
   deriving Show
@@ -1339,7 +1444,12 @@ run rawArgs =
           getWeights input = case eitherDecode input :: Either String AttentionWeights of
                                (Left s) -> error $ show s <> "\n"
                                (Right w) -> w
-
+    readDropoutMap :: IO NVec2F
+    readDropoutMap = do
+      input <- case dropoutMapOpt rawArgs of
+                 Nothing -> error "This example requires you to pass in a dropout map, in JSON format."
+                 Just inFile -> BSL.readFile inFile
+      return (dropoutMapFromJSON input)
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
@@ -1457,10 +1567,14 @@ run rawArgs =
         dictionary <- readDictionary
         embeddings <- readEmbeddings
         attentionWeights <- readWeights
+        dropoutMap <- readDropoutMap
         putStrLn $ show (example_3_5_1 hyperParams dictionary embeddings attentionWeights) <> "\n"
                 <> show (example_3_5_2 embeddings) <> "\n"
                 <> show (example_3_5_3 hyperParams dictionary embeddings attentionWeights) <> "\n"
                 <> show (example_3_5_4 hyperParams dictionary embeddings attentionWeights) <> "\n"
+                <> show dropoutMap <> "\n"
+                <> show (example_3_5_5 embeddings 123) <> "\n"
+                <> show (example_3_5_6 hyperParams dictionary embeddings attentionWeights dropoutMap) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
