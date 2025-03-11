@@ -18,6 +18,7 @@ cabal.sandbox.config
 *.g
 slicer
 # emacs
+.#*
 *~
 # build results.
 .ghc.environment.*
