@@ -1056,7 +1056,7 @@ example_3_5_2 (NVec2F rawTokenEmbeddings) = NVec2F $ fromListUnboxed (Z :. embed
   where
     (Z :. embeddingsCount :. _) = extent rawTokenEmbeddings
 
--- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
+-- | Read a set of attention weights from a JSON file, and calculate attention results, without future knowledge making it into the attention calculation.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights-3_4_10.json, ultimately producing the set of 36 values (divided into 6x6) in the middle of page 76.
 example_3_5_3 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
 example_3_5_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
@@ -1089,7 +1089,7 @@ example_3_5_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
--- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
+-- | Read a set of attention weights from a JSON file, and calculate attention results, without future knowledge making it into the attention calculation. normalizes when done.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights-3_4_10.json, ultimately producing the set of 36 values (divided into 6x6) near the bottom of page 76.
 example_3_5_4 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
 example_3_5_4 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
@@ -1172,7 +1172,7 @@ dropoutMapFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawDropoutMap) :.
     firstDropoutMapLength = length $ fromMaybe (error "failed to lookup first dropoutmap (0).") $ lookup "0" rawDropoutMap
 
 -- | Generate a dropout mask matrix where the values are either 0 or 2, randomly..
--- When given 6_token-vocab.json and a random integer, produces a dropout map.
+-- When given 6_token-vocab.json and a random integer, produces a random dropout map.
 example_3_5_5 :: NVec2F -> Int -> NVec2F
 example_3_5_5 (NVec2F rawTokenEmbeddings) mySeed = NVec2F $ fromListUnboxed (Z :. embeddingsCount :. embeddingsCount) $ zeroToTwo <$> take (embeddingsCount*embeddingsCount) (yesNo $ mkStdGen mySeed)
   where
@@ -1183,7 +1183,7 @@ example_3_5_5 (NVec2F rawTokenEmbeddings) mySeed = NVec2F $ fromListUnboxed (Z :
     yesNo = unfoldr (Just . random)
     (Z :. embeddingsCount :. _) = extent rawTokenEmbeddings
 
--- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
+-- | Read a dropout map from a JSON file, and calculate an attention weight matrix scaling by the dropout map.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, 3d6-weights-3_4_10.json, and 3d6-dropout_mask.json, ultimately producing the set of 36 values (divided into 6x6) near the top of page 80.
 example_3_5_6 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F -> NVec2F
 example_3_5_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec2F rawDropoutMap)
