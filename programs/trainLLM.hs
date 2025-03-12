@@ -1171,17 +1171,22 @@ dropoutMapFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawDropoutMap) :.
     dropoutmapList = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawDropoutMap) <$> [0,1..size rawDropoutMap-1]
     firstDropoutMapLength = length $ fromMaybe (error "failed to lookup first dropoutmap (0).") $ lookup "0" rawDropoutMap
 
--- | Generate a dropout mask matrix where the values are either 0 or 2, randomly..
+-- | Generate a dropout mask where the values are either 0 or 2, randomly..
 -- When given 6_token-vocab.json and a random integer, produces a random dropout map.
 example_3_5_5 :: NVec2F -> Int -> NVec2F
-example_3_5_5 (NVec2F rawTokenEmbeddings) mySeed = NVec2F $ fromListUnboxed (Z :. embeddingsCount :. embeddingsCount) $ zeroToTwo <$> take (embeddingsCount*embeddingsCount) (yesNo $ mkStdGen mySeed)
+example_3_5_5 (NVec2F rawTokenEmbeddings) mySeed = res
+  where
+    res = randomDropoutMap embeddingsCount mySeed
+    (Z :. embeddingsCount :. _) = extent rawTokenEmbeddings
+
+randomDropoutMap :: Int -> Int -> NVec2F
+randomDropoutMap embeddingsCount mySeed = NVec2F $ fromListUnboxed (Z :. embeddingsCount :. embeddingsCount) $ zeroToTwo <$> take (embeddingsCount*embeddingsCount) (yesNo $ mkStdGen mySeed)
   where
     zeroToTwo :: Bool -> Float
     zeroToTwo False = 0
     zeroToTwo True = 2
     yesNo :: StdGen -> [Bool]
     yesNo = unfoldr (Just . random)
-    (Z :. embeddingsCount :. _) = extent rawTokenEmbeddings
 
 -- | Read a dropout map from a JSON file, and calculate an attention weight matrix scaling by the dropout map.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, 3d6-weights-3_4_10.json, and 3d6-dropout_mask.json, ultimately producing the set of 36 values (divided into 6x6) near the top of page 80.
@@ -1267,6 +1272,51 @@ example_3_5_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
+-- | calculate a set of context vectors using our "random" functions instead of reading from files.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, returns a result in the appropriate shape (6*2 values).
+example_3_5_9 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> Int -> NVec2F
+example_3_5_9 (HyperParams embeddingDimensions attentionWeightDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) seed
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- find the dropped out key*query result.
+  | otherwise = res
+  where
+    res = NVec2F $ sumS $ moreKeyQuery *^ (transpose moreValuesRes)
+    moreValuesRes = extend (Z :. foundEmbeddingsCount :. All :. All) valuesRes
+    moreKeyQuery = extend (Z :. All :. foundEmbeddingsCount :. All) $ rawDropoutMap *^ droppedKeyQuery
+    (NVec2F rawDropoutMap) = randomDropoutMap foundEmbeddingsCount seed
+    (NVec2F droppedKeyQuery) = simpleNorm $ NVec2F $ computeS $ keyQuery *^ futureDrop
+    simpleNorm :: NVec2F -> NVec2F
+    simpleNorm (NVec2F inRawVec) = NVec2F $ computeS $ inRawVec /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS inRawVec)
+      where
+        (Z :. _ :. foundItems) = extent inRawVec
+    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
+      where
+        (Z :. _ :. foundItems) = extent inRawVec
+    futureDrop :: DAR.Array U DIM2 Float
+    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
+    moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
+    moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
+    queryRes = sumS $ leftSideQuery *^ rightSide
+    keyRes = sumS $ leftSideKey *^ rightSide
+    valuesRes = sumS $ leftSideValues *^ rightSide
+    leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
+    leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
+    leftSideValues = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose values
+    rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
+    (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+    -- FIXME: this constrains query size == key size.
+    (Z :. _ :. keyEmbeddingsDimensions) = extent key
+    (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+    (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
+    (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
+    (AttentionWeights weights) = randomAttentionWeights embeddingDimensions attentionWeightDimensions seed
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | A type for Embeddings, as they come out of the JSON file.
@@ -1625,6 +1675,7 @@ run rawArgs =
                 <> show (example_3_5_6 hyperParams dictionary embeddings attentionWeights dropoutMap) <> "\n"
                 <> show (example_3_5_7 embeddings) <> "\n"
                 <> show (example_3_5_8 hyperParams dictionary embeddings attentionWeights dropoutMap) <> "\n"
+                <> show (example_3_5_9 hyperParams dictionary embeddings 123) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
