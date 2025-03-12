@@ -1019,7 +1019,7 @@ randomAttentionWeights inputEmbeddings outputEmbeddings mySeed = AttentionWeight
 example_3_4_11 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
 example_3_4_11 = example_3_4_8
 
--- | Read a set of attention weights from a JSON file, and calculate a context vector for the second token.
+-- | Read a set of attention weights from a JSON file, and calculate a query-key tensor using the query and key from the attention weights.
 -- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, and 3d6-weights-3_4_10.json, ultimately producing the set of 36 values (divided into 6x6) toward the bottom of page 75.
 example_3_5_1 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> AttentionWeights -> NVec2F
 example_3_5_1 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights)
