@@ -714,7 +714,7 @@ findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ ri
 data QKV = QKV (InsOrdHashMap Char NVec2F)
   deriving Show
 
--- | Attention weights 101.
+-- | Attention weights
 data AttentionWeights = AttentionWeights (InsOrdHashMap Int QKV)
   deriving Show
 
@@ -1172,7 +1172,7 @@ dropoutMapFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawDropoutMap) :.
     firstDropoutMapLength = length $ fromMaybe (error "failed to lookup first dropoutmap (0).") $ lookup "0" rawDropoutMap
 
 -- | Generate a dropout mask matrix where the values are either 0 or 2, randomly..
--- When given 6_token-vocab.json, produces the tensor at the bottom of page 79.
+-- When given 6_token-vocab.json and a random integer, produces a dropout map.
 example_3_5_5 :: NVec2F -> Int -> NVec2F
 example_3_5_5 (NVec2F rawTokenEmbeddings) mySeed = NVec2F $ fromListUnboxed (Z :. embeddingsCount :. embeddingsCount) $ zeroToTwo <$> take (embeddingsCount*embeddingsCount) (yesNo $ mkStdGen mySeed)
   where
@@ -1220,6 +1220,11 @@ example_3_5_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     futureDrop :: DAR.Array U DIM2 Float
     futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
+-- | Produce an array with two input texts, each containing 6 tokens, with 3 embeddings per token.
+-- When given 3d6-token_embeddings-3_3_1.json, produces a 3 dimentional vector with the shape on the bottom of page 80.
+example_3_5_7 :: NVec2F -> NVec3F
+example_3_5_7 (NVec2F rawTokenEmbeddings) = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
@@ -1575,6 +1580,7 @@ run rawArgs =
                 <> show dropoutMap <> "\n"
                 <> show (example_3_5_5 embeddings 123) <> "\n"
                 <> show (example_3_5_6 hyperParams dictionary embeddings attentionWeights dropoutMap) <> "\n"
+                <> show (example_3_5_7 embeddings) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
