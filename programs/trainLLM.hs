@@ -43,7 +43,7 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, slice, sumS, transpose)
+import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, slice, sumS, transpose)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
@@ -588,7 +588,7 @@ example_3_3_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
   -- Check our expected embedding count, compared to the found one.
   | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
   | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
-  -- Find the dot product | softmax attention against the second token.
+  -- Find the dot product | attention against the second token.
   | otherwise = findDotAttn 1
   where
     -- | For a set of token embeddings, find the dot product of a given token when compared to every other token in the set. Normalize the output.
@@ -612,12 +612,8 @@ findAttn (NVec2F rawTokenEmbeddings) itemNo
   | foundEmbeddingsCount < itemNo = error $ "Too few items.\n"
                                          <> "comparison token index: " <> show itemNo <> "\n"
                                          <> "found tokens: " <> show foundEmbeddingsCount <> "\n"
-  | otherwise = softMax $ NVec1F $ sumS $ rawTokenEmbeddings *^ (extend (Z :. (foundEmbeddingsCount) :. All) target)
+  | otherwise = NVec1F $ computeS $ softMax1F $ sumS $ rawTokenEmbeddings *^ (extend (Z :. (foundEmbeddingsCount) :. All) target)
   where
-    softMax :: NVec1F -> NVec1F
-    softMax (NVec1F inVec) = NVec1F $ computeS $ (map exp inVec) /^ (extend (Z :. foundItems) $ sumS $ map exp inVec)
-      where
-        (Z :. foundItems) = extent inVec
     target = slice rawTokenEmbeddings (Any :. (itemNo :: Int) :. All)
     (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
 
@@ -672,21 +668,21 @@ example_3_3_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the attention values on page 63.
 example_3_3_7 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
-example_3_3_7 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_3_3_7 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
   | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
   | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
   -- Find the dot product | softmax attentions.
-  | otherwise = findAttns tokenEmbeddings
+  | otherwise = NVec2F $ computeS $ findAttns rawTokenEmbeddings
   where
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | Read a set of token embeddings from a JSON file, and calculate a set of attention results of the second token, vs the rest of the tokens.
 -- When given 3d6-token_embeddings-3_3_1.json and 6_token-vocab.json , produces the context vectors on page 63.
 example_3_3_8 :: HyperParams -> InsOrdHashMap Id BSS.ByteString -> NVec2F -> NVec2F
-example_3_3_8 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings@(NVec2F rawTokenEmbeddings)
+example_3_3_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -695,20 +691,16 @@ example_3_3_8 (HyperParams embeddingDimensions _) jsonDictionary tokenEmbeddings
   -- Find the dot product | softmax attention against the second token.
   | otherwise = NVec2F $ sumS $ transpose $ extend (Z :. foundEmbeddingsCount :. All :. All) rawTokenEmbeddings *^ extend (Z :. All :. All:. (foundEmbeddingsDimensions :: Int)) rawFoundAttention
   where
-    (NVec2F rawFoundAttention) = findAttns tokenEmbeddings
+    rawFoundAttention = findAttns rawTokenEmbeddings
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | For a set of token embeddings, find the dot product of each token when compared to every other token in the set, and itsself. Normalize the outputs using softmax.
-findAttns :: NVec2F -> NVec2F
-findAttns (NVec2F rawTokenEmbeddings) = softMax $ NVec2F $ sumS $ leftSide *^ rightSide
+findAttns :: DAR.Array U DIM2 Float -> DAR.Array D DIM2 Float
+findAttns rawTokenEmbeddings = softMax $ sumS $ leftSide *^ rightSide
   where
     leftSide = extend (Z :. (foundEmbeddingsCount) :. All :. All) rawTokenEmbeddings
     rightSide = extend (Z :. All :. (foundEmbeddingsCount) :. All) rawTokenEmbeddings
     (Z :. foundEmbeddingsCount :. _) = extent rawTokenEmbeddings
-    softMax :: NVec2F -> NVec2F
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
-      where
-        (Z :. foundItems :. _) = extent inRawVec
 
 -- | A set of Q, K, and V weights.
 data QKV = QKV (InsOrdHashMap Char NVec2F)
@@ -901,7 +893,7 @@ example_3_4_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     -- Which result to calculate. The book calculates the second position,
     index :: Int
     index = 1
-    res = softMax $ NVec1F $ computeS $ slice (sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes) (Z :. index :. All)
+    res = NVec1F $ computeS $ softMax1F $ computeS $ slice (sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes) (Z :. index :. All)
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -910,10 +902,6 @@ example_3_4_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     -- FIXME: this constrains query size == key size.
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax :: NVec1F -> NVec1F
-    softMax (NVec1F inRawVec) = NVec1F $ computeS $ (map exp inRawVec) /^ (extend (Z :. foundItems) $ sumS $ map exp inRawVec)
-      where
-        (Z :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
@@ -937,7 +925,7 @@ example_3_4_7 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     index = 1
     res = NVec1F $ sumS $ selectedKeyQuery *^ transpose valuesRes
     selectedKeyQuery = extend (Z :. foundEmbeddingsCount :. All) $ slice keyQuery (Z :. index :. All)
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -948,9 +936,6 @@ example_3_4_7 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideValues = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose values
     -- FIXME: this constrains query size == key size == value size.
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
@@ -973,7 +958,7 @@ example_3_4_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     res = NVec2F $ sumS $ moreKeyQuery *^ (transpose moreValuesRes)
     moreValuesRes = extend (Z :. foundEmbeddingsCount :. All :. All) valuesRes
     moreKeyQuery = extend (Z :. All :. foundEmbeddingsCount :. All) keyQuery
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -983,9 +968,6 @@ example_3_4_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     leftSideValues = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose values
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     -- FIXME: this constrains query size == key size.
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
@@ -1031,7 +1013,7 @@ example_3_5_1 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
   -- Find the modified dot product | softmax attention against the second token.
   | otherwise = res
   where
-    res = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    res = NVec2F $ computeS $ softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -1039,9 +1021,6 @@ example_3_5_1 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     -- FIXME: this constrains query size == key size.
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
@@ -1069,7 +1048,8 @@ example_3_5_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
   | otherwise = res
   where
     res = NVec2F $ computeS $ keyQuery *^ futureDrop
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    futureDrop = futureDropOf foundEmbeddingsCount
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -1077,16 +1057,11 @@ example_3_5_3 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     -- FIXME: this constrains query size == key size.
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    futureDrop :: DAR.Array U DIM2 Float
-    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | Read a set of attention weights from a JSON file, and calculate attention results, without future knowledge making it into the attention calculation. normalizes when done.
@@ -1101,8 +1076,9 @@ example_3_5_4 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
   -- Find the modified dot product | softmax attention against the second token.
   | otherwise = res
   where
-    res = simpleNorm $ NVec2F $ computeS $ keyQuery *^ futureDrop
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    res = NVec2F $ computeS $ simpleNorm $ keyQuery *^ futureDrop
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    futureDrop = futureDropOf foundEmbeddingsCount
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -1110,19 +1086,11 @@ example_3_5_4 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
-    simpleNorm (NVec2F inRawVec) = NVec2F $ computeS $ inRawVec /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     -- FIXME: this constrains query size == key size.
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    futureDrop :: DAR.Array U DIM2 Float
-    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | A type for a dropout map, as they come out of the JSON file.
@@ -1201,8 +1169,9 @@ example_3_5_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
   | otherwise = res
   where
     res = NVec2F $ computeS $ rawDropoutMap *^ droppedKeyQuery
-    (NVec2F droppedKeyQuery) = simpleNorm $ NVec2F $ computeS $ keyQuery *^ futureDrop
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    droppedKeyQuery = simpleNorm $ keyQuery *^ futureDrop
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    futureDrop = futureDropOf foundEmbeddingsCount
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -1210,20 +1179,11 @@ example_3_5_6 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     leftSideQuery = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose query
     leftSideKey = extend (Z :. foundEmbeddingsCount :. All :. All) $ transpose key
     rightSide = transpose $ extend (Z :. All :. All :. keyEmbeddingsDimensions) rawTokenEmbeddings
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
-    simpleNorm :: NVec2F -> NVec2F
-    simpleNorm (NVec2F inRawVec) = NVec2F $ computeS $ inRawVec /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
     (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
     -- FIXME: this constrains query size == key size.
     (Z :. _ :. keyEmbeddingsDimensions) = extent key
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    futureDrop :: DAR.Array U DIM2 Float
-    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | Produce an array with two input texts, each containing 6 tokens, with 3 embeddings per token.
@@ -1246,17 +1206,9 @@ example_3_5_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
     res = NVec2F $ sumS $ moreKeyQuery *^ (transpose moreValuesRes)
     moreValuesRes = extend (Z :. foundEmbeddingsCount :. All :. All) valuesRes
     moreKeyQuery = extend (Z :. All :. foundEmbeddingsCount :. All) $ rawDropoutMap *^ droppedKeyQuery
-    (NVec2F droppedKeyQuery) = simpleNorm $ NVec2F $ computeS $ keyQuery *^ futureDrop
-    simpleNorm :: NVec2F -> NVec2F
-    simpleNorm (NVec2F inRawVec) = NVec2F $ computeS $ inRawVec /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
-    futureDrop :: DAR.Array U DIM2 Float
-    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
+    droppedKeyQuery = simpleNorm $ keyQuery *^ futureDrop
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    futureDrop = futureDropOf foundEmbeddingsCount
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -1290,17 +1242,9 @@ example_3_5_9 (HyperParams embeddingDimensions attentionWeightDimensions) jsonDi
     moreValuesRes = extend (Z :. foundEmbeddingsCount :. All :. All) valuesRes
     moreKeyQuery = extend (Z :. All :. foundEmbeddingsCount :. All) $ rawDropoutMap *^ droppedKeyQuery
     (NVec2F rawDropoutMap) = randomDropoutMap foundEmbeddingsCount seed
-    (NVec2F droppedKeyQuery) = simpleNorm $ NVec2F $ computeS $ keyQuery *^ futureDrop
-    simpleNorm :: NVec2F -> NVec2F
-    simpleNorm (NVec2F inRawVec) = NVec2F $ computeS $ inRawVec /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
-    (NVec2F keyQuery) = softMax $ NVec2F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
-    softMax (NVec2F inRawVec) = NVec2F $ computeS $ (map exp inRawVec) /^ (extend (Z :. All :.(foundItems :: Int)) $ sumS $ map exp inRawVec)
-      where
-        (Z :. _ :. foundItems) = extent inRawVec
-    futureDrop :: DAR.Array U DIM2 Float
-    futureDrop = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
+    droppedKeyQuery = simpleNorm $ keyQuery *^ futureDrop
+    keyQuery = softMax $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeyRes *^ moreQueryRes
+    futureDrop = futureDropOf foundEmbeddingsCount
     moreQueryRes = extend (Z :. All :. foundEmbeddingsCount :. All) queryRes
     moreKeyRes = extend (Z :. foundEmbeddingsCount :. All :. All) keyRes
     queryRes = sumS $ leftSideQuery *^ rightSide
@@ -1318,6 +1262,24 @@ example_3_5_9 (HyperParams embeddingDimensions attentionWeightDimensions) jsonDi
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
     (AttentionWeights weights) = randomAttentionWeights embeddingDimensions attentionWeightDimensions seed
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
+simpleNorm :: DAR.Array D DIM2 Float -> DAR.Array D DIM2 Float
+simpleNorm inRawVec = inRawVec /^ (extend (Z :. All :. foundItems) $ sumS inRawVec)
+  where
+    (Z :. _ :. foundItems) = extent inRawVec
+
+softMax :: DAR.Array U DIM2 Float -> DAR.Array D DIM2 Float
+softMax inRawVec = (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
+  where
+    (Z :. _ :. foundItems) = extent inRawVec
+
+softMax1F :: DAR.Array U DIM1 Float -> DAR.Array D DIM1 Float
+softMax1F inRawVec = (map exp inRawVec) /^ (extend (Z :. foundItems) $ sumS $ map exp inRawVec)
+  where
+    (Z :. foundItems) = extent inRawVec
+
+futureDropOf :: Int -> DAR.Array U DIM2 Float
+futureDropOf foundEmbeddingsCount = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
 
 -- | A type for Embeddings, as they come out of the JSON file.
 data Embeddings = Embeddings (InsOrdHashMap BSS.ByteString [Float])
