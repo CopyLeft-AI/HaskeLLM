@@ -982,11 +982,11 @@ example_3_4_8 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawToke
 example_3_4_10 :: HyperParams -> AttentionWeights
 example_3_4_10 (HyperParams embeddingDims attentionWeightDims) = res
   where
-    res = randomAttentionWeights embeddingDims attentionWeightDims 789
+    res = randomAttentionWeight embeddingDims attentionWeightDims 789
 
--- | Generate a random set of attention weights that has a uniform distribution, similar to the 'nn.linear' python module.
-randomAttentionWeights :: Int -> Int -> Int -> AttentionWeights
-randomAttentionWeights inputEmbeddings outputEmbeddings mySeed = AttentionWeights $ DHSI.fromList [(0,makeRandomQKV mySeed)]
+-- | Generate a single random set of attention weights that has a uniform distribution, similar to the 'nn.linear' python module.
+randomAttentionWeight :: Int -> Int -> Int -> AttentionWeights
+randomAttentionWeight inputEmbeddings outputEmbeddings mySeed = AttentionWeights $ DHSI.fromList [(0,makeRandomQKV mySeed)]
   where
     makeRandomQKV :: Int -> QKV
     makeRandomQKV seed = QKV $ insert 'V' (makeRandomEmbedding (mkStdGen seed))
@@ -1260,7 +1260,7 @@ example_3_5_9 (HyperParams embeddingDimensions attentionWeightDimensions) jsonDi
     (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
     (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
     (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 weights
-    (AttentionWeights weights) = randomAttentionWeights embeddingDimensions attentionWeightDimensions seed
+    (AttentionWeights weights) = randomAttentionWeight embeddingDimensions attentionWeightDimensions seed
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 simpleNorm :: DAR.Array D DIM2 Float -> DAR.Array D DIM2 Float
