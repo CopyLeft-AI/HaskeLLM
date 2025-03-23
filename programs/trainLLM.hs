@@ -35,6 +35,8 @@ import Data.Aeson.Key (Key, toText)
 
 import qualified Data.Aeson.Key as AK (fromString, toString)
 
+import Data.Foldable (Foldable)
+
 import BPE.Base (Id, Merges, Pair, Seq, Vocab, mergesToVocab)
 
 import qualified BPE.Regex as BPER (decode, encode)
@@ -1263,10 +1265,63 @@ example_3_5_9 (HyperParams embeddingDimensions attentionWeightDimensions) jsonDi
     (AttentionWeights weights) = randomAttentionWeight embeddingDimensions attentionWeightDimensions seed
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
+-- | calculate two sets of context vectors using our "random" functions instead of reading from files.
+-- When given 3d6-token_embeddings-3_3_1.json, 6_token-vocab.json, returns a result in the appropriate shape (2*6*2 values), as seen on the top of page 82.
+example_3_5_10 :: Foldable t => HyperParams -> t a -> NVec2F -> Int -> NVec3F
+example_3_5_10 (HyperParams embeddingDimensions attentionWeightDimensions) jsonDictionary (NVec2F rawTokenEmbeddings) seed
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- find the dropped out key*query results.
+  | otherwise = res tokens weights
+  where
+    tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
+    res :: NVec3F -> InsOrdHashMap Int QKV -> NVec3F
+    res (NVec3F myTokens) myWeights = NVec3F $ sumS $ moreKeysQueries *^ transpose moreValuesRes
+      where
+        moreKeysQueries = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ myRawDropoutMaps *^ droppedKeysQueries
+          where
+            myRawDropoutMaps = extend (Z :. foundTokenSets :. All :. All) myRawDropoutMap
+            (NVec2F myRawDropoutMap) = randomDropoutMap foundEmbeddingsCount seed
+            droppedKeysQueries = simpleNorm3F $ keysQueries *^ futuresDrop
+              where
+                futuresDrop = extend (Z :. foundTokenSets :. All :. All) $ futureDropOf foundEmbeddingsCount
+                keysQueries = softMax3F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeysRes *^ moreQueriesRes
+                  where
+                    moreKeysRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keysRes
+                      where
+                        keysRes = sumS $ leftSideKeys *^ rightSides
+                    moreQueriesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All) queriesRes
+                      where
+                        queriesRes = sumS $ leftSideQueries *^ rightSides
+        moreValuesRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) valuesRes
+          where
+            valuesRes = sumS $ leftSideValues *^ rightSides
+        (Z :. foundTokenSets :. _ :. _) = extent myTokens
+        leftSideQueries = extend (Z :. foundTokenSets :. foundEmbeddingsCount :. All :. All) $ transpose query
+        leftSideKeys = extend (Z :. foundTokenSets :. foundEmbeddingsCount :. All :. All) $ transpose key
+        leftSideValues = extend (Z :. foundTokenSets :. foundEmbeddingsCount :. All :. All) $ transpose values
+        rightSides = transpose $ extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
+        (NVec2F query) = fromMaybe (error "no Q?") $ lookup 'Q' weight
+      -- FIXME: this constrains query size == key size.
+        (Z :. _ :. keyEmbeddingsDimensions) = extent key
+        (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+        (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
+        (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 myWeights
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+    (AttentionWeights weights) = randomAttentionWeight embeddingDimensions attentionWeightDimensions seed
+
 simpleNorm :: DAR.Array D DIM2 Float -> DAR.Array D DIM2 Float
 simpleNorm inRawVec = inRawVec /^ (extend (Z :. All :. foundItems) $ sumS inRawVec)
   where
     (Z :. _ :. foundItems) = extent inRawVec
+
+simpleNorm3F :: DAR.Array D DIM3 Float -> DAR.Array D DIM3 Float
+simpleNorm3F inRawVec = inRawVec /^ (extend (Z :. All :. All :. foundItems) $ sumS inRawVec)
+  where
+    (Z :. _ :. _ :. foundItems) = extent inRawVec
 
 softMax :: DAR.Array U DIM2 Float -> DAR.Array D DIM2 Float
 softMax inRawVec = (map exp inRawVec) /^ (extend (Z :. All :. foundItems) $ sumS $ map exp inRawVec)
@@ -1277,6 +1332,11 @@ softMax1F :: DAR.Array U DIM1 Float -> DAR.Array D DIM1 Float
 softMax1F inRawVec = (map exp inRawVec) /^ (extend (Z :. foundItems) $ sumS $ map exp inRawVec)
   where
     (Z :. foundItems) = extent inRawVec
+
+softMax3F :: DAR.Array U DIM3 Float -> DAR.Array D DIM3 Float
+softMax3F inRawVec = (map exp inRawVec) /^ (extend (Z :. All :. All :. foundItems) $ sumS $ map exp inRawVec)
+  where
+    (Z :. _ :. _ :. foundItems) = extent inRawVec
 
 futureDropOf :: Int -> DAR.Array U DIM2 Float
 futureDropOf foundEmbeddingsCount = fromListUnboxed (Z :. foundEmbeddingsCount :. foundEmbeddingsCount) $ concat $ [[ if y > x then 0 else 1 | y <- [1,2..foundEmbeddingsCount]] | x <- [1,2..foundEmbeddingsCount]]
@@ -1638,6 +1698,7 @@ run rawArgs =
                 <> show (example_3_5_7 embeddings) <> "\n"
                 <> show (example_3_5_8 hyperParams dictionary embeddings attentionWeights dropoutMap) <> "\n"
                 <> show (example_3_5_9 hyperParams dictionary embeddings 123) <> "\n"
+                <> show (example_3_5_10 hyperParams dictionary embeddings 123) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
