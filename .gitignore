@@ -20,6 +20,7 @@ slicer
 # emacs
 .#*
 *~
+\#*\#
 # build results.
 .ghc.environment.*
 Setup
