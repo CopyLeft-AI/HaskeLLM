@@ -1307,14 +1307,16 @@ dropoutMapsToJSON nVec2f
 
 -- | Read a dropout maps from a JSON formatted maps of number to list of N sets of N floats. where N is your vocabulary length.
 dropoutMapsFromJSON :: BSL.ByteString -> NVec3F
-dropoutMapsFromJSON json = NVec3F $ fromListUnboxed (Z :. size rawDropoutMaps :. firstDropoutMapLength :. firstDropoutMapLength) dropoutmapsList
+dropoutMapsFromJSON json = NVec3F $ fromListUnboxed (Z :. size rawDropoutMaps :. dropoutCount :. firstDropoutLength) dropoutMapsList
   where
     (DropoutMaps rawDropoutMaps) = case eitherDecode json :: Either String DropoutMaps of
                                    Left err -> error $ "parse error when reading dropoutmaps:\n" <> err <> "\n" <> show json <> "\n"
                                    Right d -> d
     -- By performing lookup from 0-size rawDropoutMaps, we ensure a consistent space, with no gaps.
-    dropoutmapsList = concat $ concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawDropoutMaps) <$> [0,1..size rawDropoutMaps-1]
-    firstDropoutMapLength = length $ fromMaybe (error "failed to lookup first dropoutmap (0).") $ lookup "0" rawDropoutMaps
+    dropoutMapsList = concat dropoutMapsList'
+    dropoutMapsList' = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawDropoutMaps) <$> [0,1..size rawDropoutMaps-1]
+    dropoutCount = length dropoutMapsList'
+    firstDropoutLength = length (head dropoutMapsList')
 
 -- | A 4D vector of Floats.
 data NVec4F = NVec4F (DAR.Array U DIM4 Float)
