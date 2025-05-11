@@ -1305,18 +1305,20 @@ dropoutMapsToJSON nVec2f
           sequences = [DAR.toList rawDropoutMaps]
 -}
 
--- | Read a dropout maps from a JSON formatted maps of number to list of N sets of N floats. where N is your vocabulary length.
+-- | Read a set of dropout maps from a JSON formatted file, each being a map of number to list of N sets of M floats. where N is your vocabulary length, and M is a whole multiple of the vocabulary length.
 dropoutMapsFromJSON :: BSL.ByteString -> NVec3F
-dropoutMapsFromJSON json = NVec3F $ fromListUnboxed (Z :. size rawDropoutMaps :. dropoutCount :. firstDropoutLength) dropoutMapsList
+dropoutMapsFromJSON json = NVec3F $ fromListUnboxed (Z :. dropoutMapCount :. dropoutCount :. firstDropoutLength) dropoutMapsList
   where
+    dropoutCount = length (head dropoutMapsList'')
+    firstDropoutLength = length (head dropoutMapsList')
+    -- By performing lookup from 0-size rawDropoutMaps, we ensure a consistent space, with no gaps.
+    dropoutMapsList = concat dropoutMapsList'
+    dropoutMapsList' = concat dropoutMapsList''
+    dropoutMapsList'' = (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawDropoutMaps) <$> [0,1..dropoutMapCount-1]
+    dropoutMapCount = size rawDropoutMaps
     (DropoutMaps rawDropoutMaps) = case eitherDecode json :: Either String DropoutMaps of
                                    Left err -> error $ "parse error when reading dropoutmaps:\n" <> err <> "\n" <> show json <> "\n"
                                    Right d -> d
-    -- By performing lookup from 0-size rawDropoutMaps, we ensure a consistent space, with no gaps.
-    dropoutMapsList = concat dropoutMapsList'
-    dropoutMapsList' = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawDropoutMaps) <$> [0,1..size rawDropoutMaps-1]
-    dropoutCount = length dropoutMapsList'
-    firstDropoutLength = length (head dropoutMapsList')
 
 -- | A 4D vector of Floats.
 data NVec4F = NVec4F (DAR.Array U DIM4 Float)
