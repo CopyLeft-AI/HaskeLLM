@@ -45,7 +45,7 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, slice, sumS, transpose)
+import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, reshape, slice, sumS, transpose)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
@@ -1349,8 +1349,14 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
       where
         moreKeysQueries = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) $ moreDropoutMaps *^ droppedKeysQueries
           where
-            moreDropoutMaps = extend (Z :. All :. length myQKVs :. All :. All) rawDropoutMaps
-            droppedKeysQueries = simpleNorm4F $ keysQueries *^ futuresDrop
+            repeats :: Int
+            repeats
+              | dropoutMapRows == foundEmbeddingsCount = 1
+              | dropoutMapRows == foundEmbeddingsCount + foundEmbeddingsCount = 2
+              | otherwise = error $ "imbalance: " <> show dropoutMapRows <> "\nvs: " <> show foundEmbeddingsCount <> "\n"
+            (Z :. _ :. _ :. dropoutMapRows) = extent rawDropoutMaps
+            moreDropoutMaps = extend (Z :. foundTokenSets :. All :. All :. All) rawDropoutMaps
+            droppedKeysQueries = reshape (Z :. foundTokenSets :. length myQKVs :. foundEmbeddingsCount :. (foundEmbeddingsCount*repeats :: Int)) $ extend (Z :. All :. All :. All :. (repeats::Int) :. All) $ simpleNorm4F $ keysQueries *^ futuresDrop
               where
                 futuresDrop = extend (Z :. foundTokenSets :. length myQKVs :. All :. All) $ futureDropOf foundEmbeddingsCount
                 keysQueries = softMax4F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeysRes *^ moreQueriesRes
@@ -1365,10 +1371,10 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
           where
             valuesRes = sumS $ leftSideValues *^ moreRightSides
         (Z :. foundTokenSets :. _ :. _) = extent myTokens
-        leftSideQueries = extend (Z :. All :. foundTokenSets :. foundEmbeddingsCount :. All :. All) $ transpose queries
-        leftSideKeys = extend (Z :. All :. foundTokenSets :. foundEmbeddingsCount :. All :. All) $ transpose keys
-        leftSideValues = extend (Z :. All :. foundTokenSets :. foundEmbeddingsCount :. All :. All) $ transpose values
-        moreRightSides = extend (Z :. length myQKVs :. All :. All :. All :. All) rightSides
+        leftSideQueries = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) $ transpose queries
+        leftSideKeys = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) $ transpose keys
+        leftSideValues = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) $ transpose values
+        moreRightSides = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSides
         rightSides = transpose $ extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
         queriesFrom, keysFrom, valuesFrom :: QKV -> [Float]
         queriesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no Q?") $ lookup 'Q' myQKV
