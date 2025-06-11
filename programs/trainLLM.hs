@@ -1229,11 +1229,12 @@ example_3_5_10 (HyperParams embeddingDimensions attentionWeightDimensions) jsonD
   | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
   | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
   -- find the dropped out key*query results.
-  | otherwise = res tokens weights
+  | otherwise = res tokens qkvs
   where
+    qkvs = findQKVs weights
     tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
-    res :: NVec3F -> InsOrdHashMap Int QKV -> NVec3F
-    res (NVec3F myTokens) myWeights = NVec3F $ sumS $ moreKeysQueries *^ transpose moreValuesRes
+    res :: NVec3F -> [QKV] -> NVec3F
+    res (NVec3F myTokens) myQKVs = NVec3F $ sumS $ moreKeysQueries *^ transpose moreValuesRes
       where
         moreKeysQueries = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ moreDropoutMaps *^ droppedKeysQueries
           where
@@ -1263,7 +1264,7 @@ example_3_5_10 (HyperParams embeddingDimensions attentionWeightDimensions) jsonD
         (Z :. _ :. keyEmbeddingsDimensions) = extent key
         (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
         (NVec2F values) = fromMaybe (error "no V?") $ lookup 'V' weight
-        (QKV weight) = fromMaybe (error "no weights?") $ lookup 0 myWeights
+        (QKV weight) = head myQKVs
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
     (AttentionWeights weights) = randomAttentionWeight embeddingDimensions attentionWeightDimensions seed
 
