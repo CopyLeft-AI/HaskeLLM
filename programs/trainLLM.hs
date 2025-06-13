@@ -45,11 +45,11 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, reshape, slice, sumS, transpose)
+import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, slice, sumS, transpose)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
-import Data.Array.Repa.Index (DIM1, DIM2, DIM3, DIM4, (:.)((:.)))
+import Data.Array.Repa.Index (DIM1, DIM2, DIM3, DIM4, DIM5, (:.)((:.)))
 
 import Data.Array.Repa.Slice (Any(Any), All(All))
 
@@ -1354,43 +1354,48 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
       where
         moreKeysQueries = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) $ moreDropoutMaps *^ droppedKeysQueries
           where
-            repeats :: Int
-            repeats
-              | dropoutMapRows == foundEmbeddingsCount = 1
-              | dropoutMapRows == foundEmbeddingsCount + foundEmbeddingsCount = 2
-              | otherwise = error $ "imbalance: " <> show dropoutMapRows <> "\nvs: " <> show foundEmbeddingsCount <> "\n"
-            (Z :. _ :. _ :. dropoutMapRows) = extent rawDropoutMaps
             moreDropoutMaps = extend (Z :. foundTokenSets :. All :. All :. All) rawDropoutMaps
-            droppedKeysQueries = reshape (Z :. foundTokenSets :. length myQKVs :. foundEmbeddingsCount :. (foundEmbeddingsCount*repeats :: Int)) $ extend (Z :. All :. All :. All :. (repeats::Int) :. All) $ simpleNorm4F $ keysQueries *^ futuresDrop
+            droppedKeysQueries = simpleNorm4F $ keysQueries *^ futuresDrop
               where
-                futuresDrop = extend (Z :. foundTokenSets :. length myQKVs :. All :. All) $ futureDropOf foundEmbeddingsCount
+                futuresDrop = extend (Z :. foundTokenSets :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
+                -- NOTE: the following sumS and softMax4F is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
+                -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
                 keysQueries = softMax4F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeysRes *^ moreQueriesRes
                   where
                     moreKeysRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All :. All) keysRes
                       where
-                        keysRes = sumS $ leftSideKeys *^ moreRightSides
+                        keysRes = sumS $ transpose $ leftSideKeys *^ moreRightSideKeys
                     moreQueriesRes = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) queriesRes
                       where
-                        queriesRes = sumS $ leftSideQueries *^ moreRightSides
+                        queriesRes = sumS $ transpose $ leftSideQueries *^ moreRightSideQueries
+                    moreRightSideQueries = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSideQueries
+                    moreRightSideKeys = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSideKeys
+        moreValuesRes :: DAR.Array D DIM5 Float
         moreValuesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All :. All) valuesRes
           where
-            valuesRes = sumS $ leftSideValues *^ moreRightSides
+            valuesRes = sumS $ transpose $ leftSideValues *^ moreRightSideValues
+            moreRightSideValues = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSideValues
         (Z :. foundTokenSets :. _ :. _) = extent myTokens
-        leftSideQueries = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) $ transpose queries
-        leftSideKeys = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) $ transpose keys
-        leftSideValues = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) $ transpose values
-        moreRightSides = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSides
-        rightSides = transpose $ extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
-        queriesFrom, keysFrom, valuesFrom :: QKV -> [Float]
-        queriesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no Q?") $ lookup 'Q' myQKV
-        keysFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no K?") $ lookup 'K' myQKV
-        valuesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no V?") $ lookup 'V' myQKV
-        queries = fromListUnboxed (Z :. length myQKVs :. keyEmbeddingsCount :. keyEmbeddingsDimensions) $ concat $ queriesFrom <$> myQKVs
-        keys = fromListUnboxed (Z :. length myQKVs :. keyEmbeddingsCount :. keyEmbeddingsDimensions) $ concat $ keysFrom <$> myQKVs
-        values = fromListUnboxed (Z :. length myQKVs :. keyEmbeddingsCount :. keyEmbeddingsDimensions) $ concat $ valuesFrom <$> myQKVs
-        -- FIXME: this constrains query size == key size.
-        (Z :. keyEmbeddingsCount :. keyEmbeddingsDimensions) = extent key
-        (NVec2F key) = fromMaybe (error "no K?") $ lookup 'K' weight
+        leftSideQueries, leftSideKeys, leftSideValues :: DAR.Array D DIM5 Float
+        leftSideQueries = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) queries
+        leftSideKeys = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) keys
+        leftSideValues = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) values
+        rightSideQueries = extend (Z :. All :. All :. All :. queryEmbeddingsDimensions) myTokens
+        rightSideKeys = extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
+        rightSideValues = extend (Z :. All :. All :. All :. valueEmbeddingsDimensions) myTokens
+        queries = fromListUnboxed (Z :. myQKVCount :. queryEmbeddingsCount :. queryEmbeddingsDimensions) $ concat $ queriesFrom <$> myQKVs
+          where
+            queriesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no Q?") $ lookup 'Q' myQKV
+        keys = fromListUnboxed (Z :. myQKVCount :. keyEmbeddingsCount :. keyEmbeddingsDimensions) $ concat $ keysFrom <$> myQKVs
+          where
+            keysFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no K?") $ lookup 'K' myQKV
+        values = fromListUnboxed (Z :. myQKVCount :. valueEmbeddingsCount :. valueEmbeddingsDimensions) $ concat $ valuesFrom <$> myQKVs
+          where
+            valuesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no V?") $ lookup 'V' myQKV
+        (Z :. queryEmbeddingsCount :. queryEmbeddingsDimensions) = extent $ (\(NVec2F query) -> query) $ fromMaybe (error "no Q?") $ lookup 'Q' weight
+        (Z :. keyEmbeddingsCount :. keyEmbeddingsDimensions) = extent $ (\(NVec2F key) -> key) $ fromMaybe (error "no K?") $ lookup 'K' weight
+        (Z :. valueEmbeddingsCount :. valueEmbeddingsDimensions) = extent $ (\(NVec2F value) -> value) $ fromMaybe (error "no V?") $ lookup 'V' weight
+        myQKVCount = length myQKVs
         (QKV weight) = head myQKVs
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
