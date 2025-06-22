@@ -137,6 +137,7 @@ data TrainRootOpts =
     , tokenEmbeddingsOpt :: Maybe String
     , attentionWeightsOpt :: Maybe String
     , dropoutMapsOpt :: Maybe String
+    , outProjectionWeightsOpt :: Maybe String
     , verboseFlag :: Maybe Bool
     }
 
@@ -214,6 +215,14 @@ trainOpts =
       <> long "dropoutMaps"
       <> metavar "DROPOUTMAPS"
       <> help "load a JSON formatted set of dropout maps"
+    )
+  )
+  <*> optional (
+  strOption
+    (    short 'o'
+      <> long "outProjectionWeights"
+      <> metavar "OUTPROJECTIONWEIGHTS"
+      <> help "load a JSON formatted set of output projection weights"
     )
   )
   <*> optional (
@@ -1394,6 +1403,65 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
         (QKV weight) = head myQKVs
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
+-- | calculate two sets of context vectors reading from files.
+-- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_12.json, 3d6-weights-3_5_12.json, 3d6-outProjects-3_5_12.json, and 6_token-vocab.json, returns (more-or-less) the tensor on page 85.
+example_3_5_12 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec2F -> NVec4F
+example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps) (NVec2F outProject)
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  -- find the dropped out key*query results.
+  | otherwise = res tokens qkvs
+  where
+    qkvs = findQKVs weights
+    tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
+    res :: NVec3F -> [QKV] -> NVec4F
+    res (NVec3F myTokens) myQKVs = NVec4F $ computeS $ extend (Z :. foundTokenSets :. All :. All :. All) $ sumS $ moreAttentionWeights *^ transpose moreValuesRes
+      where
+        moreAttentionWeights = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ rawDropoutMaps *^ droppedAttentionWeights
+          where
+            droppedAttentionWeights = simpleNorm3F $ attentionWeights *^ futuresDrop
+              where
+                futuresDrop = extend (Z :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
+                -- NOTE: the following softMax3F application is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
+                -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
+                attentionWeights = softMax3F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $  moreQueriesRes *^ moreKeysRes
+                  where
+                    moreQueriesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All) queriesRes
+                      where
+                        queriesRes = sumS $ transpose $ leftSideQueries *^ rightSideQueries
+                    moreKeysRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keysRes
+                      where
+                        keysRes = sumS $ transpose $ leftSideKeys *^ rightSideKeys
+        moreValuesRes :: DAR.Array D DIM4 Float
+        moreValuesRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) valuesRes
+          where
+            valuesRes = sumS $ transpose $ leftSideValues *^ rightSideValues
+        (Z :. foundTokenSets :. _ :. _) = extent myTokens
+        leftSideQueries = extend (Z :. All :. foundEmbeddingsCount :. All :. All) queries
+        leftSideKeys = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keys
+        leftSideValues = extend (Z :. All :. foundEmbeddingsCount :. All :. All) values
+        rightSideQueries = extend (Z :. All :. All :. All :. queryEmbeddingsDimensions) myTokens
+        rightSideKeys = extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
+        rightSideValues = extend (Z :. All :. All :. All :. valueEmbeddingsDimensions) myTokens
+        queries = fromListUnboxed (Z :. myQKVCount :. queryEmbeddingsCount :. queryEmbeddingsDimensions) $ concat $ queriesFrom <$> myQKVs
+          where
+            queriesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no Q?") $ lookup 'Q' myQKV
+        keys = fromListUnboxed (Z :. myQKVCount :. keyEmbeddingsCount :. keyEmbeddingsDimensions) $ concat $ keysFrom <$> myQKVs
+          where
+            keysFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no K?") $ lookup 'K' myQKV
+        values = fromListUnboxed (Z :. myQKVCount :. valueEmbeddingsCount :. valueEmbeddingsDimensions) $ concat $ valuesFrom <$> myQKVs
+          where
+            valuesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no V?") $ lookup 'V' myQKV
+        (Z :. queryEmbeddingsCount :. queryEmbeddingsDimensions) = extent $ (\(NVec2F query) -> query) $ fromMaybe (error "no Q?") $ lookup 'Q' weight
+        (Z :. keyEmbeddingsCount :. keyEmbeddingsDimensions) = extent $ (\(NVec2F key) -> key) $ fromMaybe (error "no K?") $ lookup 'K' weight
+        (Z :. valueEmbeddingsCount :. valueEmbeddingsDimensions) = extent $ (\(NVec2F value) -> value) $ fromMaybe (error "no V?") $ lookup 'V' weight
+        myQKVCount = length myQKVs
+        (QKV weight) = head myQKVs
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
 simpleNorm :: DAR.Array D DIM2 Float -> DAR.Array D DIM2 Float
 simpleNorm inRawVec = inRawVec /^ (extend (Z :. All :. foundItems) $ sumS inRawVec)
   where
@@ -1475,6 +1543,50 @@ embeddingsFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawEmbeddings) :.
     -- By performing lookup from 0-size rawEmbeddings, we ensure a consistent space, with no gaps.
     embeddingsList = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawEmbeddings) <$> [0,1..size rawEmbeddings-1]
     firstEmbeddingLength = length $ fromMaybe (error $ "failed to lookup first embedding (0)." ) $ lookup "0" rawEmbeddings
+
+-- | A type for ProjectionWeights, as they come out of the JSON file.
+data ProjectionWeights = ProjectionWeights (InsOrdHashMap BSS.ByteString [Float])
+  deriving Show
+
+-- | Our parser for a file containing projection Weights.
+instance FromJSON ProjectionWeights where
+  parseJSON = withObject "ProjectionWeights" (\v -> pure $ findProjectionWeights $ DAKM.toList v)
+    where
+      findProjectionWeights :: [(Key, Value)] -> ProjectionWeights
+      findProjectionWeights maybeProjectionWeights = ProjectionWeights projectionWeights
+        where
+          projectionWeights = projectionWeights' maybeProjectionWeights empty
+          projectionWeights' :: [(Key, Value)] -> InsOrdHashMap BSS.ByteString [Float] -> InsOrdHashMap BSS.ByteString [Float]
+          projectionWeights' [] myProjectionWeights = myProjectionWeights
+          projectionWeights' [(k,v)] myProjectionWeights = insert (encodeUtf8 $ toText k) (numbersFromValue v) myProjectionWeights
+          projectionWeights' ((k,v):xs) myProjectionWeights = insert (encodeUtf8 $ toText k) (numbersFromValue v) (projectionWeights' xs myProjectionWeights)
+          numbersFromValue :: Value -> [Float]
+          numbersFromValue (Array (vs)) = (\(Number a) -> toRealFloat a) <$> DV.toList vs
+          numbersFromValue a = error $ "failed to parse " <> show a <> " as an Array.\n"
+
+-- | Our serializer, to produce JSON from a set of ProjectionWeights.
+instance ToJSON ProjectionWeights where
+  toJSON (ProjectionWeights rawProjectionWeights) = toJSON $ object $ (\(a,b) -> AK.fromString (BSC.unpack a) .= b) <$> DHSI.toList rawProjectionWeights
+
+-- | Fill a ByteString with the JSON formatted form of the given set of projectionWeights.
+projectionWeightsToJSON :: NVec2F -> BSL.ByteString
+projectionWeightsToJSON nVec2f
+  | otherwise = A.encode $ projectionWeightsFromTensor nVec2f
+    where
+      projectionWeightsFromTensor (NVec2F rawProjectionWeights) = ProjectionWeights $ DHSI.fromList $ zip [BSL.toStrict $ toByteString v | v <- [0,1 .. length sequences-1]] sequences
+        where
+          sequences = [DAR.toList rawProjectionWeights]
+
+-- | Read a set of projection weights from a JSON formatted map of number to list of N sets of D floats. where N is your vocabulary length, and D is your projectionWeights dimensions.
+projectionWeightsFromJSON :: BSL.ByteString -> NVec2F
+projectionWeightsFromJSON json = NVec2F $ fromListUnboxed (Z :. (size rawProjectionWeights) :. firstEmbeddingLength) projectionWeightsList
+  where
+    (ProjectionWeights rawProjectionWeights) = case eitherDecode json :: Either String ProjectionWeights of
+                                   Left err -> error $ "parse error when reading projectionWeights:\n" <> err <> "\n" <> show json <> "\n"
+                                   Right d -> d
+    -- By performing lookup from 0-size rawProjectionWeights, we ensure a consistent space, with no gaps.
+    projectionWeightsList = concat $ (\a -> fromMaybe (error $ "could not lookup" <> show a <> "\n") $ lookup (BSL.toStrict $ toByteString a) rawProjectionWeights) <$> [0,1..size rawProjectionWeights-1]
+    firstEmbeddingLength = length $ fromMaybe (error $ "failed to lookup first embedding (0)." ) $ lookup "0" rawProjectionWeights
 
 -- | Read a dictionary from a JSON formatted map.
 dictionaryFromJSON :: BSL.ByteString -> Vocab
@@ -1661,6 +1773,12 @@ run rawArgs =
                  Nothing -> error "This example requires you to pass in a set of dropout maps, in JSON format."
                  Just inFile -> BSL.readFile inFile
       return (dropoutMapsFromJSON input)
+    readOutProjectionWeights :: IO NVec2F
+    readOutProjectionWeights = do
+      input <- case outProjectionWeightsOpt rawArgs of
+                 Nothing -> error "This example requires you to pass in a set of output projection weights, in JSON format."
+                 Just inFile -> BSL.readFile inFile
+      return (embeddingsFromJSON input)
     beVerbose = case verboseFlag rawArgs of
                   Nothing -> False
                   Just a -> a
@@ -1779,6 +1897,7 @@ run rawArgs =
         embeddings <- readEmbeddings
         attentionWeights <- readWeights
         dropoutMaps@(NVec3F rawDropoutMaps) <- readDropoutMaps
+        outProjectionWeights <- readOutProjectionWeights
         let
           dropoutMap = NVec2F $ computeS $ slice rawDropoutMaps (Z :. (0::Int) :. All :. All)
         putStrLn $ show (example_3_5_1 hyperParams dictionary embeddings attentionWeights) <> "\n"
@@ -1793,6 +1912,7 @@ run rawArgs =
                 <> show (example_3_5_9 hyperParams dictionary embeddings 123) <> "\n"
                 <> show (example_3_5_10 hyperParams dictionary embeddings 123) <> "\n"
                 <> show (example_3_5_11 hyperParams dictionary embeddings attentionWeights dropoutMaps) <> "\n"
+                <> show (example_3_5_12 hyperParams dictionary embeddings attentionWeights dropoutMaps outProjectionWeights) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
