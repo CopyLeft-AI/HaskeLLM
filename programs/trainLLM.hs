@@ -1350,36 +1350,31 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
     qkvs = findQKVs weights
     tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
     res :: NVec3F -> [QKV] -> NVec4F
-    res (NVec3F myTokens) myQKVs = NVec4F $ sumS $ moreKeysQueries *^ transpose moreValuesRes
+    res (NVec3F myTokens) myQKVs = NVec4F $ computeS $ extend (Z :. foundTokenSets :. All :. All :. All) $ sumS $ moreKeysQueries *^ transpose moreValuesRes
       where
-        moreKeysQueries = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) $ moreDropoutMaps *^ droppedKeysQueries
+        moreKeysQueries = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ rawDropoutMaps *^ droppedKeysQueries
           where
-            moreDropoutMaps = extend (Z :. foundTokenSets :. All :. All :. All) rawDropoutMaps
-            droppedKeysQueries = simpleNorm4F $ keysQueries *^ futuresDrop
+            droppedKeysQueries = simpleNorm3F $ attentionWeights *^ futuresDrop
               where
-                futuresDrop = extend (Z :. foundTokenSets :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
+                futuresDrop = extend (Z :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
                 -- NOTE: the following sumS and softMax4F is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
                 -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
-                keysQueries = softMax4F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeysRes *^ moreQueriesRes
+                attentionWeights = softMax3F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeysRes *^ moreQueriesRes
                   where
-                    moreKeysRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All :. All) keysRes
+                    moreKeysRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keysRes
                       where
-                        keysRes = sumS $ transpose $ leftSideKeys *^ moreRightSideKeys
-                    moreQueriesRes = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) queriesRes
+                        keysRes = sumS $ transpose $ leftSideKeys *^ rightSideKeys
+                    moreQueriesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All) queriesRes
                       where
-                        queriesRes = sumS $ transpose $ leftSideQueries *^ moreRightSideQueries
-                    moreRightSideQueries = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSideQueries
-                    moreRightSideKeys = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSideKeys
-        moreValuesRes :: DAR.Array D DIM5 Float
-        moreValuesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All :. All) valuesRes
+                        queriesRes = sumS $ transpose $ leftSideQueries *^ rightSideQueries
+        moreValuesRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) valuesRes
           where
-            valuesRes = sumS $ transpose $ leftSideValues *^ moreRightSideValues
-            moreRightSideValues = extend (Z :. foundTokenSets :. All :. All :. All :. All) rightSideValues
+            valuesRes = sumS $ transpose $ leftSideValues *^ rightSideValues
         (Z :. foundTokenSets :. _ :. _) = extent myTokens
-        leftSideQueries, leftSideKeys, leftSideValues :: DAR.Array D DIM5 Float
-        leftSideQueries = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) queries
-        leftSideKeys = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) keys
-        leftSideValues = extend (Z :. foundTokenSets :. All :. foundEmbeddingsCount :. All :. All) values
+        leftSideQueries, leftSideKeys, leftSideValues :: DAR.Array D DIM4 Float
+        leftSideQueries = extend (Z :. All :. foundEmbeddingsCount :. All :. All) queries
+        leftSideKeys = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keys
+        leftSideValues = extend (Z :. All :. foundEmbeddingsCount :. All :. All) values
         rightSideQueries = extend (Z :. All :. All :. All :. queryEmbeddingsDimensions) myTokens
         rightSideKeys = extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
         rightSideValues = extend (Z :. All :. All :. All :. valueEmbeddingsDimensions) myTokens
