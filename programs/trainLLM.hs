@@ -1366,10 +1366,12 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
             droppedKeysQueries = simpleNorm3F $ attentionWeights *^ futuresDrop
               where
                 futuresDrop = extend (Z :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
-                -- NOTE: the following sumS and softMax4F is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
-                -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
-                attentionWeights = softMax3F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreKeysRes *^ moreQueriesRes
+                -- NOTE: the following sumS and softMax3F is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
+                attentionWeights :: DAR.Array U DIM3 Float
+                attentionWeights = computeS $ softMax3F $ sumS rawAttentionWeights
                   where
+                    -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
+                    rawAttentionWeights = map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreQueriesRes *^ moreKeysRes
                     moreKeysRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keysRes
                       where
                         keysRes = sumS $ transpose $ leftSideKeys *^ rightSideKeys
