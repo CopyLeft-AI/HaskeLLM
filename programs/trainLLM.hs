@@ -1380,8 +1380,10 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
                         queriesRes = sumS $ transpose $ leftSideQueries *^ rightSideQueries
         moreValuesRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) valuesRes
           where
-            valuesRes = sumS $ transpose $ leftSideValues *^ rightSideValues
-        (Z :. foundTokenSets :. _ :. _) = extent myTokens
+            valuesRes = sumS $ transpose rawValueRes
+              where
+                rawValueRes :: DAR.Array U DIM4 Float
+                rawValueRes = computeS $ leftSideValues *^ rightSideValues
         leftSideQueries, leftSideKeys, leftSideValues :: DAR.Array D DIM4 Float
         leftSideQueries = extend (Z :. All :. foundEmbeddingsCount :. All :. All) queries
         leftSideKeys = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keys
