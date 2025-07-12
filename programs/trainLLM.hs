@@ -1346,7 +1346,7 @@ findQKVs weights = findQKV 0
 -- | calculate two sets of context vectors reading from files.
 -- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks.json, 3d6-weights-3_4_10.json, and 6_token-vocab.json, returns a result in the appropriate shape (2*6*4 values), as seen on page 85. Said result contains the same operations and results as examples 3_5_8 and 3_5_9.
 -- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_11.json, 3d6-weights-3_5_11.json, and 6_token-vocab.json, returns (more-or-less) the tensor on page 85.
-example_3_5_11 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec4F
+example_3_5_11 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec3F
 example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
@@ -1358,12 +1358,13 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
   where
     qkvs = findQKVs weights
     tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
-    res :: NVec3F -> [QKV] -> NVec4F
-    res (NVec3F myTokens) myQKVs = NVec4F $ computeS $ extend (Z :. foundTokenSets :. All :. All :. All) $ sumS $ moreKeysQueries *^ transpose moreValuesRes
+    res :: NVec3F -> [QKV] -> NVec3F
+    res (NVec3F myTokens) myQKVs = NVec3F $ sumS myRes
       where
-        moreKeysQueries = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ rawDropoutMaps *^ droppedKeysQueries
+        myRes = moreAttentionWeights *^ transpose moreValuesRes
+        moreAttentionWeights = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ rawDropoutMaps *^ droppedAttentionWeights
           where
-            droppedKeysQueries = simpleNorm3F $ attentionWeights *^ futuresDrop
+            droppedAttentionWeights = simpleNorm3F $ attentionWeights *^ futuresDrop
               where
                 futuresDrop = extend (Z :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
                 -- NOTE: the following sumS and softMax3F is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
