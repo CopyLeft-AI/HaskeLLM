@@ -1460,11 +1460,11 @@ example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
         values = fromListUnboxed (Z :. myQKVCount :. valueEmbeddingsCount :. valueEmbeddingsDimensions) $ concat $ valuesFrom <$> myQKVs
           where
             valuesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no V?") $ lookup 'V' myQKV
-        (Z :. queryEmbeddingsCount :. queryEmbeddingsDimensions) = extent $ (\(NVec2F query) -> query) $ fromMaybe (error "no Q?") $ lookup 'Q' weight
         (Z :. keyEmbeddingsCount :. keyEmbeddingsDimensions) = extent $ (\(NVec2F key) -> key) $ fromMaybe (error "no K?") $ lookup 'K' weight
         (Z :. valueEmbeddingsCount :. valueEmbeddingsDimensions) = extent $ (\(NVec2F value) -> value) $ fromMaybe (error "no V?") $ lookup 'V' weight
         myQKVCount = length myQKVs
-        (QKV weight) = head myQKVs
+    (Z :. queryEmbeddingsCount :. queryEmbeddingsDimensions) = extent $ (\(NVec2F query) -> query) $ fromMaybe (error "no Q?") $ lookup 'Q' weight
+    (QKV weight) = head qkvs
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 simpleNorm :: DAR.Array D DIM2 Float -> DAR.Array D DIM2 Float
