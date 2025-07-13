@@ -23,7 +23,7 @@
 -- For using :. in type declarations around show and error.
 {-# LANGUAGE TypeOperators #-}
 
-import Prelude (Bool(True, False), Char, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (/), (-), concat, error, exp, fromIntegral, getContents, length, mempty, not, otherwise, pure, putStrLn, read, return, sqrt, show, take, zip)
+import Prelude (Bool(True, False), Char, Float, Int, IO, Maybe(Just, Nothing), Show, String, (<$>), (<*>), (>>=), (<>), (&&), (/=), (==), (<), (>), (.), ($), (*), (+), (/), (-), concat, div, error, exp, fromIntegral, getContents, length, mempty, mod, not, otherwise, pure, putStrLn, read, return, sqrt, show, take, zip)
 
 import qualified Prelude as PL (readFile)
 
@@ -45,7 +45,7 @@ import BPE.Regex (gpt2pattern)
 
 import qualified Data.Aeson.KeyMap as DAKM (toList)
 
-import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), computeS, extend, extent, fromListUnboxed, map, slice, sumS, transpose)
+import Data.Array.Repa (U, D, Z(Z), (*^), (/^), (+^), backpermute, computeS, extend, extent, fromListUnboxed, map, reshape, slice, sumS, transpose)
 
 import qualified Data.Array.Repa as DAR (Array, toList)
 
@@ -1368,8 +1368,7 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
               where
                 futuresDrop = extend (Z :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
                 -- NOTE: the following sumS and softMax3F is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
-                attentionWeights :: DAR.Array U DIM3 Float
-                attentionWeights = computeS $ softMax3F $ sumS rawAttentionWeights
+                attentionWeights = softMax3F $ sumS rawAttentionWeights
                   where
                     -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
                     rawAttentionWeights = map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $ moreQueriesRes *^ moreKeysRes
@@ -1383,8 +1382,7 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
           where
             valuesRes = sumS $ transpose rawValueRes
               where
-                rawValueRes :: DAR.Array U DIM4 Float
-                rawValueRes = computeS $ leftSideValues *^ rightSideValues
+                rawValueRes = leftSideValues *^ rightSideValues
         leftSideQueries, leftSideKeys, leftSideValues :: DAR.Array D DIM4 Float
         leftSideQueries = extend (Z :. All :. foundEmbeddingsCount :. All :. All) queries
         leftSideKeys = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keys
