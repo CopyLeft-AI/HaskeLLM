@@ -1476,6 +1476,91 @@ example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
 -- | A 5D vector of Floats.
 newtype NVec5F = NVec5F (DAR.Array U DIM5 Float)
 
+-- | calculate two sets of context vectors reading from files.
+-- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_13.json, 3d6-weights-3_5_12.json, and 6_token-vocab.json, returns the result of 3_5_8, then 3_5_9, then 3_5_9, then 3_5_8.
+example_3_5_13 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec4F
+example_3_5_13 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps)
+  -- Check our expected embedding dimensions, compared to the found one.
+  | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show foundEmbeddingsDimensions <> "\n"
+  -- Check our expected embedding count, compared to the found one.
+  | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show foundEmbeddingsCount <> "\n"
+  | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  | mod queryEmbeddingsDimensions attentionHeads /= 0 = error $ "dimensions do not divide into heads evenly.\nFound dimensions: " <> show queryEmbeddingsDimensions <> "\n" <> show (mod attentionHeads queryEmbeddingsDimensions) <> "\n"
+  -- find the dropped out key*query results.
+  | otherwise = res tokens qkvs
+  where
+    attentionHeads :: Int
+    attentionHeads = 2
+    headWidth = div queryEmbeddingsDimensions attentionHeads
+    qkvs = findQKVs weights
+    tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
+    res :: NVec3F -> [QKV] -> NVec4F
+    res (NVec3F myTokens) myQKVs = NVec4F $ sumS myRes
+      where
+        myRes = moreAttentionWeights *^ moreValuesRes
+        moreAttentionWeights = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) $ moreDropoutMaps *^ droppedAttentionWeights
+          where
+            moreDropoutMaps
+              | mod dropoutMapRowLength attentionHeads /= 0 = error "dropout map row length not divisible by number of attention heads."
+              | attentionHeads == 1 = extend (Z :. All :. attentionHeads :. All :. All) rawDropoutMaps
+              | div dropoutMapRowLength attentionHeads == foundEmbeddingsCount = backpermute (Z :. myQKVCount :. attentionHeads :. dropoutMapRowCount :. dropoutMapHeadWidth)
+                          (\(Z :. a :. b :. c :. d) -> Z :. a :. c :. b*dropoutMapHeadWidth+d)
+                          rawDropoutMaps
+              | otherwise = error $ "failed to divide into attention heads properly\n"
+                                 <> show (div dropoutMapRowLength attentionHeads) <> "\n"
+                                 <> show foundEmbeddingsCount <> "\n"
+              where
+                dropoutMapHeadWidth = div dropoutMapRowLength attentionHeads
+                (Z :. _ :. dropoutMapRowCount :. dropoutMapRowLength) = extent rawDropoutMaps
+            droppedAttentionWeights = simpleNorm4F $ attentionWeights *^ futuresDrop
+              where
+                futuresDrop = extend (Z :. myQKVCount :. attentionHeads :. All :. All) $ futureDropOf foundEmbeddingsCount
+                -- NOTE: the following softMax3F application is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
+                attentionWeights = softMax4F
+                                   $ computeS
+                                   $ backpermute (Z :. myQKVCount :. attentionHeads :. foundEmbeddingsCount :. foundEmbeddingsCount)
+                                     (\(Z :. a :. b :. c :. d) -> Z :. a :. c :. d :. b)
+                                   $ sumS
+                                   $ reshape (Z :. myQKVCount :. foundEmbeddingsCount :. foundEmbeddingsCount :. attentionHeads :. headWidth) rawAttentionWeights
+                  where
+                    -- FIXME: RESEARCH: which should the following embedding dimensions be? key, query, or value?
+                    rawAttentionWeights = map (/(sqrt $ fromIntegral (div keyEmbeddingsDimensions attentionHeads))) $ moreQueriesRes *^ moreKeysRes
+                    moreQueriesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All) queriesRes
+                      where
+                        queriesRes = sumS $ transpose $ leftSideQueries *^ rightSideQueries
+                    moreKeysRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keysRes
+                      where
+                        keysRes = sumS $ transpose $ leftSideKeys *^ rightSideKeys
+        moreValuesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All :. All)
+                        $ backpermute (Z :. myQKVCount :. attentionHeads :. headWidth :. foundEmbeddingsCount)
+                                      (\(Z :. a :. b :. c :. d) -> Z :. a :. d :. b*headWidth+c)
+                        valuesRes
+          where
+            valuesRes = sumS $ transpose rawValueRes
+              where
+                rawValueRes = leftSideValues *^ rightSideValues
+        leftSideQueries = extend (Z :. All :. foundEmbeddingsCount :. All :. All) queries
+        leftSideKeys = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keys
+        leftSideValues = extend (Z :. All :. foundEmbeddingsCount :. All :. All) values
+        rightSideQueries = extend (Z :. All :. All :. All :. queryEmbeddingsDimensions) myTokens
+        rightSideKeys = extend (Z :. All :. All :. All :. keyEmbeddingsDimensions) myTokens
+        rightSideValues = extend (Z :. All :. All :. All :. valueEmbeddingsDimensions) myTokens
+        queries = fromListUnboxed (Z :. myQKVCount :. queryEmbeddingsCount :. queryEmbeddingsDimensions) $ concatMap queriesFrom myQKVs
+          where
+            queriesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no Q?") $ lookup 'Q' myQKV
+        keys = fromListUnboxed (Z :. myQKVCount :. keyEmbeddingsCount :. keyEmbeddingsDimensions) $ concatMap keysFrom myQKVs
+          where
+            keysFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no K?") $ lookup 'K' myQKV
+        values = fromListUnboxed (Z :. myQKVCount :. valueEmbeddingsCount :. valueEmbeddingsDimensions) $ concatMap valuesFrom myQKVs
+          where
+            valuesFrom (QKV myQKV) = (\(NVec2F a) -> DAR.toList a) $ fromMaybe (error "no V?") $ lookup 'V' myQKV
+        (Z :. keyEmbeddingsCount :. keyEmbeddingsDimensions) = extent $ (\(NVec2F key) -> key) $ fromMaybe (error "no K?") $ lookup 'K' weight
+        (Z :. valueEmbeddingsCount :. valueEmbeddingsDimensions) = extent $ (\(NVec2F value) -> value) $ fromMaybe (error "no V?") $ lookup 'V' weight
+        myQKVCount = length myQKVs
+    (Z :. queryEmbeddingsCount :. queryEmbeddingsDimensions) = extent $ (\(NVec2F query) -> query) $ fromMaybe (error "no Q?") $ lookup 'Q' weight
+    (QKV weight) = head qkvs
+    (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
+
 simpleNorm :: DAR.Array D DIM2 Float -> DAR.Array D DIM2 Float
 simpleNorm inRawVec = inRawVec /^ extend (Z :. All :. foundItems) (sumS inRawVec)
   where
@@ -1910,6 +1995,7 @@ run rawArgs =
                 <> show (example_3_5_10 hyperParams dictionary embeddings 123) <> "\n"
                 <> show (example_3_5_11 hyperParams dictionary embeddings attentionWeights dropoutMaps) <> "\n"
                 <> show (example_3_5_12 hyperParams dictionary embeddings attentionWeights dropoutMaps) <> "\n"
+                <> show (example_3_5_13 hyperParams dictionary embeddings attentionWeights dropoutMaps) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
