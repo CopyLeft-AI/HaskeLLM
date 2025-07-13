@@ -1407,7 +1407,7 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | calculate two sets of context vectors reading from files.
--- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_12.json, 3d6-weights-3_5_12.json, 3d6-outProjects-3_5_12.json, and 6_token-vocab.json, returns (more-or-less) the tensor on page 85.
+-- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_12.json, 3d6-weights-3_5_12.json, 3d6-outProjects-3_5_12.json, and 6_token-vocab.json, returns the result of 3_5_8, then 3_5_9 with 3_5_8's dropoutMask, then 3_5_9, then 3_5_8 with 3_5_9's dropoutmask.
 example_3_5_12 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec4F
 example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps)
   -- Check our expected embedding dimensions, compared to the found one.
@@ -1415,31 +1415,46 @@ example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
   -- Check our expected embedding count, compared to the found one.
   | length jsonDictionary /= foundEmbeddingsCount = error $ "mismatch in count of embeddings, versus number of items in dictionary.\nDictionary items: " <> show (length jsonDictionary) <> "\nEmbeddings: " <> show (foundEmbeddingsCount) <> "\n"
   | foundEmbeddingsCount < 2 = error "There is no second token in our stream of embedded tokens.\n"
+  | mod queryEmbeddingsDimensions attentionHeads /= 0 = error $ "dimensions do not divide into heads evenly.\nFound dimensions: " <> show queryEmbeddingsDimensions <> "\n" <> show (mod attentionHeads queryEmbeddingsDimensions) <> "\n"
   -- find the dropped out key*query results.
   | otherwise = res tokens qkvs
   where
+    attentionHeads :: Int
+    attentionHeads = 2
+    headWidth = div queryEmbeddingsDimensions attentionHeads
     qkvs = findQKVs weights
     tokens = NVec3F $ computeS $ extend (Z :. (2::Int) :. All :. All) rawTokenEmbeddings
     res :: NVec3F -> [QKV] -> NVec4F
-    res (NVec3F myTokens) myQKVs = NVec4F $ computeS $ extend (Z :. foundTokenSets :. All :. All :. All) $ sumS $ moreAttentionWeights *^ transpose moreValuesRes
+    res (NVec3F myTokens) myQKVs = NVec4F $ sumS myRes
       where
-        moreAttentionWeights = extend (Z :. All :. All :. foundEmbeddingsCount :. All) $ rawDropoutMaps *^ droppedAttentionWeights
+        myRes = moreAttentionWeights *^ moreValuesRes
+        moreAttentionWeights = extend (Z :. All :. All :. All :. foundEmbeddingsCount :. All) $ moreDropoutMaps *^ droppedAttentionWeights
           where
-            droppedAttentionWeights = simpleNorm3F $ attentionWeights *^ futuresDrop
+            moreDropoutMaps = extend (Z :. All :. attentionHeads :. All :. All) rawDropoutMaps
+            droppedAttentionWeights = simpleNorm4F $ attentionWeights *^ futuresDrop
               where
-                futuresDrop = extend (Z :. myQKVCount :. All :. All) $ futureDropOf foundEmbeddingsCount
+                futuresDrop = extend (Z :. myQKVCount :. attentionHeads :. All :. All) $ futureDropOf foundEmbeddingsCount
                 -- NOTE: the following softMax3F application is why we cannot calculate two answers by doubling the length of the keyEmbeddingDimensions.
-                -- FIXME: RESEARCH: which should the following be, key, query, or valueEmbeddingsDimensions?
-                attentionWeights = softMax3F $ sumS $ map (/(sqrt $ fromIntegral keyEmbeddingsDimensions)) $  moreQueriesRes *^ moreKeysRes
+                attentionWeights = softMax4F
+                                   $ computeS
+                                   $ backpermute (Z :. myQKVCount :. attentionHeads :. foundEmbeddingsCount :. foundEmbeddingsCount)
+                                     (\(Z :. a :. b :. c :. d) -> Z :. a :. c :. d :. b)
+                                   $ sumS
+                                   $ reshape (Z :. myQKVCount :. foundEmbeddingsCount :. foundEmbeddingsCount :. attentionHeads :. headWidth) rawAttentionWeights
                   where
+                    -- FIXME: RESEARCH: which should the following embedding dimensions be? key, query, or value?
+                    rawAttentionWeights = map (/(sqrt $ fromIntegral (div keyEmbeddingsDimensions attentionHeads))) $ moreQueriesRes *^ moreKeysRes
                     moreQueriesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All) queriesRes
                       where
                         queriesRes = sumS $ transpose $ leftSideQueries *^ rightSideQueries
                     moreKeysRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) keysRes
                       where
                         keysRes = sumS $ transpose $ leftSideKeys *^ rightSideKeys
-        moreValuesRes :: DAR.Array D DIM4 Float
-        moreValuesRes = extend (Z :. All :. foundEmbeddingsCount :. All :. All) valuesRes
+        moreValuesRes = extend (Z :. All :. All :. foundEmbeddingsCount :. All :. All)
+                        $ backpermute (Z :. myQKVCount :. attentionHeads :. headWidth :. foundEmbeddingsCount)
+                                      (\(Z :. a :. b :. c :. d) -> Z :. a :. d :. b :. c)
+                        $ reshape (Z :. myQKVCount :. foundEmbeddingsCount :. attentionHeads :. headWidth)
+                        $ valuesRes
           where
             valuesRes = sumS $ transpose rawValueRes
               where
