@@ -1408,8 +1408,8 @@ example_3_5_11 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
 
 -- | calculate two sets of context vectors reading from files.
 -- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_12.json, 3d6-weights-3_5_12.json, 3d6-outProjects-3_5_12.json, and 6_token-vocab.json, returns (more-or-less) the tensor on page 85.
-example_3_5_12 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec2F -> NVec4F
-example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps) (NVec2F outProject)
+example_3_5_12 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec4F
+example_3_5_12 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps)
   -- Check our expected embedding dimensions, compared to the found one.
   | embeddingDimensions /= foundEmbeddingsDimensions = error $ "mismatch in count of dimensions in first token, and embedding dimensions\nDimensions expected(via HyperParams): " <> show embeddingDimensions <> "\nFound dimensions: " <> show (foundEmbeddingsDimensions) <> "\n"
   -- Check our expected embedding count, compared to the found one.
@@ -1915,7 +1915,7 @@ run rawArgs =
                 <> show (example_3_5_9 hyperParams dictionary embeddings 123) <> "\n"
                 <> show (example_3_5_10 hyperParams dictionary embeddings 123) <> "\n"
                 <> show (example_3_5_11 hyperParams dictionary embeddings attentionWeights dropoutMaps) <> "\n"
-                <> show (example_3_5_12 hyperParams dictionary embeddings attentionWeights dropoutMaps outProjectionWeights) <> "\n"
+                <> show (example_3_5_12 hyperParams dictionary embeddings attentionWeights dropoutMaps) <> "\n"
       Example (a,b) -> error $ "unknown listing: " <> show a <> "." <> show b <> "\n"
   where
     example_2_3_String, example_2_4_String, example_2_5_String :: [Char]
