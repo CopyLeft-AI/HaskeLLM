@@ -1562,7 +1562,7 @@ example_3_5_13 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTok
     (Z :. foundEmbeddingsCount :. foundEmbeddingsDimensions) = extent rawTokenEmbeddings
 
 -- | calculate two sets of context vectors reading from files.
--- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_13.json, 3d6-weights-3_5_12.json, and 6_token-vocab.json, returns the result of 3_5_8, then 3_5_9, then 3_5_9, then 3_5_8.
+-- When given 3d6-token_embeddings-3_3_1.json, 3d6-dropout_masks-3_5_13.json, 3d6-weights-3_5_12.json, 6_token-vocab.json, and 3d6-out_projections-3_5_14.json, returns the result of 3_5_8, then 3_5_9, then 3_5_9, then 3_5_8.
 example_3_5_14 :: Foldable t => HyperParams -> t a -> NVec2F -> AttentionWeights -> NVec3F -> NVec2F -> NVec4F
 example_3_5_14 (HyperParams embeddingDimensions _) jsonDictionary (NVec2F rawTokenEmbeddings) (AttentionWeights weights) (NVec3F rawDropoutMaps) (NVec2F outProject)
   -- Check our expected embedding dimensions, compared to the found one.
